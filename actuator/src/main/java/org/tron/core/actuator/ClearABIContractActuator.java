@@ -1,5 +1,7 @@
 package org.tron.core.actuator;
 
+import static org.tron.core.actuator.ActuatorConstant.NOT_EXIST_STR;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.util.Arrays;
@@ -7,19 +9,19 @@ import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.tron.common.utils.DecodeUtil;
 import org.tron.common.utils.StringUtil;
+import org.tron.core.capsule.AbiCapsule;
 import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.capsule.ContractCapsule;
 import org.tron.core.capsule.TransactionResultCapsule;
 import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractValidateException;
+import org.tron.core.store.AbiStore;
 import org.tron.core.store.AccountStore;
 import org.tron.core.store.ContractStore;
-import org.tron.core.vm.config.VMConfig;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
 import org.tron.protos.Protocol.Transaction.Result.code;
 import org.tron.protos.contract.SmartContractOuterClass.ClearABIContract;
-
-import static org.tron.core.actuator.ActuatorConstant.NOT_EXIST_STR;
+import org.tron.protos.contract.SmartContractOuterClass.SmartContract.ABI;
 
 @Slf4j(topic = "actuator")
 public class ClearABIContractActuator extends AbstractActuator {
@@ -36,15 +38,12 @@ public class ClearABIContractActuator extends AbstractActuator {
     }
 
     long fee = calcFee();
-    ContractStore contractStore = chainBaseManager.getContractStore();
+    AbiStore abiStore = chainBaseManager.getAbiStore();
     try {
       ClearABIContract usContract = any.unpack(ClearABIContract.class);
 
       byte[] contractAddress = usContract.getContractAddress().toByteArray();
-      ContractCapsule deployedContract = contractStore.get(contractAddress);
-
-      deployedContract.clearABI();
-      contractStore.put(contractAddress, deployedContract);
+      abiStore.put(contractAddress, new AbiCapsule(ABI.getDefaultInstance()));
 
       ret.setStatus(fee, code.SUCESS);
     } catch (InvalidProtocolBufferException e) {
@@ -57,16 +56,15 @@ public class ClearABIContractActuator extends AbstractActuator {
 
   @Override
   public boolean validate() throws ContractValidateException {
-    if (!VMConfig.allowTvmConstantinople()) {
-      throw new ContractValidateException(
-          "contract type error,unexpected type [ClearABIContract]");
-    }
-
     if (this.any == null) {
       throw new ContractValidateException(ActuatorConstant.CONTRACT_NOT_EXIST);
     }
     if (chainBaseManager == null) {
       throw new ContractValidateException("No account store or contract store!");
+    }
+    if (chainBaseManager.getDynamicPropertiesStore().getAllowTvmConstantinople() == 0) {
+      throw new ContractValidateException(
+          "contract type error,unexpected type [ClearABIContract]");
     }
     AccountStore accountStore = chainBaseManager.getAccountStore();
     ContractStore contractStore = chainBaseManager.getContractStore();

@@ -9,7 +9,6 @@ import java.util.Random;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.tron.common.application.TronApplicationContext;
 import org.tron.common.utils.ByteArray;
@@ -25,7 +24,6 @@ import org.tron.protos.Protocol.Permission;
 import org.tron.protos.Protocol.Vote;
 import org.tron.protos.contract.AssetIssueContractOuterClass.AssetIssueContract;
 
-@Ignore
 public class AccountCapsuleTest {
 
   private static final String dbPath = "output_accountCapsule_test";
@@ -115,7 +113,7 @@ public class AccountCapsuleTest {
 
     Assert.assertTrue(addBoolean);
 
-    Map<String, Long> assetMap = accountCapsuleTest.getAssetMap();
+    Map<String, Long> assetMap = accountCapsuleTest.getAssetMapForTest();
     for (Map.Entry<String, Long> entry : assetMap.entrySet()) {
       Assert.assertEquals(nameAdd, entry.getKey());
       Assert.assertEquals(amountAdd, entry.getValue().longValue());
@@ -126,7 +124,7 @@ public class AccountCapsuleTest {
         .reduceAssetAmount(ByteArray.fromString("TokenX"), amountReduce);
     Assert.assertTrue(reduceBoolean);
 
-    Map<String, Long> assetMapAfter = accountCapsuleTest.getAssetMap();
+    Map<String, Long> assetMapAfter = accountCapsuleTest.getAssetMapForTest();
     for (Map.Entry<String, Long> entry : assetMapAfter.entrySet()) {
       Assert.assertEquals(nameAdd, entry.getKey());
       Assert.assertEquals(amountAdd - amountReduce, entry.getValue().longValue());
@@ -195,8 +193,8 @@ public class AccountCapsuleTest {
     dbManager.getAccountStore().put(accountCapsule.getAddress().toByteArray(), accountCapsule);
 
     accountCapsule.addAssetV2(ByteArray.fromString(String.valueOf(id)), 1000L);
-    Assert.assertEquals(accountCapsule.getAssetMap().get(ASSET_NAME).longValue(), 1000L);
-    Assert.assertEquals(accountCapsule.getAssetMapV2().get(String.valueOf(id)).longValue(),
+    Assert.assertEquals(accountCapsule.getAssetMapForTest().get(ASSET_NAME).longValue(), 1000L);
+    Assert.assertEquals(accountCapsule.getAssetV2MapForTest().get(String.valueOf(id)).longValue(),
         1000L);
 
     //assetBalanceEnoughV2
@@ -219,10 +217,10 @@ public class AccountCapsuleTest {
     Assert.assertTrue(accountCapsule.addAssetAmountV2(ByteArray.fromString(ASSET_NAME),
         500, dbManager.getDynamicPropertiesStore(), dbManager.getAssetIssueStore()));
     // 1000-999 +500
-    Assert.assertEquals(accountCapsule.getAssetMap().get(ASSET_NAME).longValue(), 501L);
+    Assert.assertEquals(accountCapsule.getAssetMapForTest().get(ASSET_NAME).longValue(), 501L);
     Assert.assertTrue(accountCapsule.addAssetAmountV2(ByteArray.fromString("abc"),
         500, dbManager.getDynamicPropertiesStore(), dbManager.getAssetIssueStore()));
-    Assert.assertEquals(accountCapsule.getAssetMap().get("abc").longValue(), 500L);
+    Assert.assertEquals(accountCapsule.getAssetMapForTest().get("abc").longValue(), 500L);
   }
 
   /**
@@ -276,7 +274,7 @@ public class AccountCapsuleTest {
             10000);
     accountCapsule.addAssetV2(ByteArray.fromString(String.valueOf(id)), 1000L);
     dbManager.getAccountStore().put(accountCapsule.getAddress().toByteArray(), accountCapsule);
-    Assert.assertEquals(accountCapsule.getAssetMapV2().get(String.valueOf(id)).longValue(),
+    Assert.assertEquals(accountCapsule.getAssetV2MapForTest().get(String.valueOf(id)).longValue(),
         1000L);
 
     //assetBalanceEnoughV2
@@ -302,13 +300,13 @@ public class AccountCapsuleTest {
     Assert.assertTrue(accountCapsule.addAssetAmountV2(ByteArray.fromString(String.valueOf(id)),
         500, dbManager.getDynamicPropertiesStore(), dbManager.getAssetIssueStore()));
     // 1000-999 +500
-    Assert.assertEquals(accountCapsule.getAssetMapV2().get(String.valueOf(id)).longValue(),
+    Assert.assertEquals(accountCapsule.getAssetV2MapForTest().get(String.valueOf(id)).longValue(),
         501L);
     //abc
     Assert.assertTrue(accountCapsule.addAssetAmountV2(ByteArray.fromString(String.valueOf(id + 1)),
         500, dbManager.getDynamicPropertiesStore(), dbManager.getAssetIssueStore()));
     Assert
-        .assertEquals(accountCapsule.getAssetMapV2().get(String.valueOf(id + 1)).longValue(),
+        .assertEquals(accountCapsule.getAssetV2MapForTest().get(String.valueOf(id + 1)).longValue(),
             500L);
   }
 

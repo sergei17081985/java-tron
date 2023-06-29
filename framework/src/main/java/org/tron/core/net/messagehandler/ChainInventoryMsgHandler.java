@@ -5,6 +5,7 @@ import static org.tron.core.config.Parameter.ChainConstant.BLOCK_PRODUCED_INTERV
 import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,10 +16,11 @@ import org.tron.core.config.Parameter.NetConstants;
 import org.tron.core.exception.P2pException;
 import org.tron.core.exception.P2pException.TypeEnum;
 import org.tron.core.net.TronNetDelegate;
-import org.tron.core.net.message.ChainInventoryMessage;
 import org.tron.core.net.message.TronMessage;
+import org.tron.core.net.message.sync.ChainInventoryMessage;
 import org.tron.core.net.peer.PeerConnection;
-import org.tron.core.net.service.SyncService;
+import org.tron.core.net.peer.TronState;
+import org.tron.core.net.service.sync.SyncService;
 
 @Slf4j(topic = "net")
 @Component
@@ -37,6 +39,8 @@ public class ChainInventoryMsgHandler implements TronMsgHandler {
 
     check(peer, chainInventoryMessage);
 
+    peer.setFetchAble(false);
+
     peer.setNeedSyncFromPeer(true);
 
     peer.setSyncChainRequested(null);
@@ -44,6 +48,7 @@ public class ChainInventoryMsgHandler implements TronMsgHandler {
     Deque<BlockId> blockIdWeGet = new LinkedList<>(chainInventoryMessage.getBlockIds());
 
     if (blockIdWeGet.size() == 1 && tronNetDelegate.containBlock(blockIdWeGet.peek())) {
+      peer.setTronState(TronState.SYNC_COMPLETED);
       peer.setNeedSyncFromPeer(false);
       return;
     }
@@ -61,14 +66,26 @@ public class ChainInventoryMsgHandler implements TronMsgHandler {
     peer.getSyncBlockToFetch().addAll(blockIdWeGet);
 
     synchronized (tronNetDelegate.getBlockLock()) {
-      while (!peer.getSyncBlockToFetch().isEmpty() && tronNetDelegate
-          .containBlock(peer.getSyncBlockToFetch().peek())) {
-        BlockId blockId = peer.getSyncBlockToFetch().pop();
-        peer.setBlockBothHave(blockId);
-        logger.info("Block {} from {} is processed", blockId.getString(), peer.getNode().getHost());
+      try {
+        BlockId blockId = null;
+        while (!peer.getSyncBlockToFetch().isEmpty() && tronNetDelegate
+                .containBlock(peer.getSyncBlockToFetch().peek())) {
+          blockId = peer.getSyncBlockToFetch().pop();
+          peer.setBlockBothHave(blockId);
+        }
+        if (blockId != null) {
+          logger.info("Block {} from {} is processed",
+              blockId.getString(), peer.getInetAddress());
+        }
+      } catch (NoSuchElementException e) {
+        logger.warn("Process ChainInventoryMessage failed, peer {}, isDisconnect:{}",
+                peer.getInetAddress(), peer.isDisconnect());
+        peer.setFetchAble(true);
+        return;
       }
     }
 
+    peer.setFetchAble(true);
     if ((chainInventoryMessage.getRemainNum() == 0 && !peer.getSyncBlockToFetch().isEmpty())
         || (chainInventoryMessage.getRemainNum() != 0
         && peer.getSyncBlockToFetch().size() > NetConstants.SYNC_FETCH_BATCH_NUM)) {

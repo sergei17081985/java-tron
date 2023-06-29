@@ -9,8 +9,8 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.Assert;
-import org.spongycastle.util.encoders.Hex;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeSuite;
@@ -26,6 +26,7 @@ import stest.tron.wallet.common.client.Configuration;
 import stest.tron.wallet.common.client.Parameter.CommonConstant;
 import stest.tron.wallet.common.client.utils.Base58;
 import stest.tron.wallet.common.client.utils.PublicMethed;
+import stest.tron.wallet.common.client.utils.Retry;
 
 @Slf4j
 
@@ -51,11 +52,7 @@ public class ContractInternalTransaction003 {
   private String fullnode1 = Configuration.getByPath("testng.conf")
       .getStringList("fullnode.ip.list").get(1);
 
-  @BeforeSuite
-  public void beforeSuite() {
-    Wallet wallet = new Wallet();
-    Wallet.setAddressPreFixByte(CommonConstant.ADD_PRE_FIX_BYTE_MAINNET);
-  }
+
 
   /**
    * constructor.
@@ -445,7 +442,8 @@ public class ContractInternalTransaction003 {
     dupInternalTrsansactionHash(infoById.get().getInternalTransactionsList());
   }
 
-  @Test(enabled = true, description = "Test maxfeelimit can trigger call create call max time")
+  @Test(enabled = true,retryAnalyzer = Retry.class,
+      description = "Test maxfeelimit can trigger call create call max time")
   public void testInternalTransaction018() {
     Assert.assertTrue(PublicMethed
         .sendcoin(internalTxsAddress, 100000000000L, testNetAccountAddress, testNetAccountKey,

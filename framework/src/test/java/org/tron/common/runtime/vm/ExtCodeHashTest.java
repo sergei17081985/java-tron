@@ -3,8 +3,8 @@ package org.tron.common.runtime.vm;
 import java.math.BigInteger;
 import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.Test;
-import org.spongycastle.util.encoders.Hex;
 import org.testng.Assert;
 import org.tron.common.runtime.TVMTestResult;
 import org.tron.common.runtime.TvmTestUtils;
@@ -50,7 +50,7 @@ public class ExtCodeHashTest extends VMTestBase {
         contractName, address, ABI, factoryCode, value, fee, consumeUserResourcePercent,
         null);
     byte[] factoryAddress = WalletUtil.generateContractAddress(trx);
-    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootDeposit, null);
+    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootRepository, null);
     Assert.assertNull(runtime.getRuntimeError());
 
     // Trigger contract method: getCodeHashByAddr(address)

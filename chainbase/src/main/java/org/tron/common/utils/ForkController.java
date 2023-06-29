@@ -44,6 +44,9 @@ public class ForkController {
   }
 
   public synchronized boolean pass(int version) {
+    if (manager == null) {
+      throw new IllegalStateException("not inited");
+    }
     if (version > ForkBlockVersionEnum.VERSION_4_0.getValue()) {
       return passNew(version);
     } else {
@@ -63,7 +66,7 @@ public class ForkController {
   private boolean passNew(int version) {
     ForkBlockVersionEnum versionEnum = ForkBlockVersionEnum.getForkBlockVersionEnum(version);
     if (versionEnum == null) {
-      logger.error("not exist block version: {}", version);
+      logger.error("Not exist block version: {}.", version);
       return false;
     }
     long latestBlockTime = manager.getDynamicPropertiesStore().getLatestBlockHeaderTimestamp();
@@ -167,7 +170,7 @@ public class ForkController {
     stats[slot] = VERSION_UPGRADE;
     manager.getDynamicPropertiesStore().statsByVersion(version, stats);
     logger.info(
-        "*******update hard fork:{}, witness size:{}, solt:{}, witness:{}, version:{}",
+        "Update hard fork: {}, witness size: {}, solt: {}, witness: {}, version: {}.",
         Streams.zip(witnesses.stream(), Stream.of(ArrayUtils.toObject(stats)), Maps::immutableEntry)
             .map(e -> Maps
                 .immutableEntry(encode58Check(e.getKey().toByteArray()), e.getValue()))
@@ -185,7 +188,7 @@ public class ForkController {
     for (ForkBlockVersionEnum versionEnum : ForkBlockVersionEnum.values()) {
       int versionValue = versionEnum.getValue();
       byte[] stats = manager.getDynamicPropertiesStore().statsByVersion(versionValue);
-      if (!check(stats) && Objects.nonNull(stats)) {
+      if (Objects.nonNull(stats) && !pass(versionValue)) {
         Arrays.fill(stats, VERSION_DOWNGRADE);
         manager.getDynamicPropertiesStore().statsByVersion(versionValue, stats);
       }

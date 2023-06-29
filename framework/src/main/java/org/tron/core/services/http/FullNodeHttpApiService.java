@@ -22,6 +22,7 @@ import org.tron.common.zksnark.JLibrustzcash;
 import org.tron.common.zksnark.LibrustzcashParam.InitZksnarkParams;
 import org.tron.core.config.args.Args;
 import org.tron.core.exception.ZksnarkException;
+import org.tron.core.services.filter.HttpApiAccessFilter;
 import org.tron.core.services.filter.HttpInterceptor;
 import org.tron.core.services.filter.LiteFnQueryHttpFilter;
 
@@ -40,8 +41,6 @@ public class FullNodeHttpApiService implements Service {
   private TransferServlet transferServlet;
   @Autowired
   private BroadcastServlet broadcastServlet;
-  @Autowired
-  private TransactionSignServlet transactionSignServlet;
   @Autowired
   private UpdateAccountServlet updateAccountServlet;
   @Autowired
@@ -113,18 +112,6 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private GetNextMaintenanceTimeServlet getNextMaintenanceTimeServlet;
   @Autowired
-  private EasyTransferServlet easyTransferServlet;
-  @Autowired
-  private EasyTransferByPrivateServlet easyTransferByPrivateServlet;
-  @Autowired
-  private EasyTransferAssetServlet easyTransferAssetServlet;
-  @Autowired
-  private EasyTransferAssetByPrivateServlet easyTransferAssetByPrivateServlet;
-  @Autowired
-  private CreateAddressServlet createAddressServlet;
-  @Autowired
-  private GenerateAddressServlet generateAddressServlet;
-  @Autowired
   private ValidateAddressServlet validateAddressServlet;
   @Autowired
   private DeployContractServlet deployContractServlet;
@@ -132,6 +119,8 @@ public class FullNodeHttpApiService implements Service {
   private TriggerSmartContractServlet triggerSmartContractServlet;
   @Autowired
   private TriggerConstantContractServlet triggerConstantContractServlet;
+  @Autowired
+  private EstimateEnergyServlet estimateEnergyServlet;
   @Autowired
   private GetContractServlet getContractServlet;
   @Autowired
@@ -167,8 +156,6 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private GetNodeInfoServlet getNodeInfoServlet;
   @Autowired
-  private AddTransactionSignServlet addTransactionSignServlet;
-  @Autowired
   private GetTransactionSignWeightServlet getTransactionSignWeightServlet;
   @Autowired
   private GetTransactionApprovedListServlet getTransactionApprovedListServlet;
@@ -181,7 +168,17 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private GetDelegatedResourceAccountIndexServlet getDelegatedResourceAccountIndexServlet;
   @Autowired
+  private GetDelegatedResourceAccountIndexV2Servlet getDelegatedResourceAccountIndexV2Servlet;
+  @Autowired
   private GetDelegatedResourceServlet getDelegatedResourceServlet;
+  @Autowired
+  private GetDelegatedResourceV2Servlet getDelegatedResourceV2Servlet;
+  @Autowired
+  private GetCanDelegatedMaxSizeServlet getCanDelegatedMaxSizeServlet;
+  @Autowired
+  private GetAvailableUnfreezeCountServlet getAvailableUnfreezeCountServlet;
+  @Autowired
+  private GetCanWithdrawUnfreezeAmountServlet getCanWithdrawUnfreezeAmountServlet;
   @Autowired
   private SetAccountIdServlet setAccountServlet;
   @Autowired
@@ -279,11 +276,32 @@ public class FullNodeHttpApiService implements Service {
   @Autowired
   private LiteFnQueryHttpFilter liteFnQueryHttpFilter;
   @Autowired
+  private HttpApiAccessFilter httpApiAccessFilter;
+  @Autowired
   private GetTransactionFromPendingServlet getTransactionFromPendingServlet;
   @Autowired
   private GetTransactionListFromPendingServlet getTransactionListFromPendingServlet;
   @Autowired
   private GetPendingSizeServlet getPendingSizeServlet;
+  @Autowired
+  private GetEnergyPricesServlet getEnergyPricesServlet;
+  @Autowired
+  private GetBandwidthPricesServlet getBandwidthPricesServlet;
+  @Autowired
+  private GetBlockServlet getBlockServlet;
+  @Autowired
+  private GetMemoFeePricesServlet getMemoFeePricesServlet;
+
+  @Autowired
+  private FreezeBalanceV2Servlet freezeBalanceV2Servlet;
+  @Autowired
+  private UnFreezeBalanceV2Servlet unFreezeBalanceV2Servlet;
+  @Autowired
+  private WithdrawExpireUnfreezeServlet withdrawExpireUnfreezeServlet;
+  @Autowired
+  private DelegateResourceServlet delegateResourceServlet;
+  @Autowired
+  private UnDelegateResourceServlet unDelegateResourceServlet;
 
   private static String getParamsFile(String fileName) {
     InputStream in = Thread.currentThread().getContextClassLoader()
@@ -343,7 +361,6 @@ public class FullNodeHttpApiService implements Service {
       context.addServlet(new ServletHolder(getAccountServlet), "/wallet/getaccount");
       context.addServlet(new ServletHolder(transferServlet), "/wallet/createtransaction");
       context.addServlet(new ServletHolder(broadcastServlet), "/wallet/broadcasttransaction");
-      context.addServlet(new ServletHolder(transactionSignServlet), "/wallet/gettransactionsign");
       context.addServlet(new ServletHolder(updateAccountServlet), "/wallet/updateaccount");
       context.addServlet(new ServletHolder(voteWitnessAccountServlet),
           "/wallet/votewitnessaccount");
@@ -396,20 +413,13 @@ public class FullNodeHttpApiService implements Service {
       context.addServlet(new ServletHolder(totalTransactionServlet), "/wallet/totaltransaction");
       context.addServlet(
           new ServletHolder(getNextMaintenanceTimeServlet), "/wallet/getnextmaintenancetime");
-      context.addServlet(new ServletHolder(createAddressServlet), "/wallet/createaddress");
-      context.addServlet(new ServletHolder(easyTransferServlet), "/wallet/easytransfer");
-      context.addServlet(new ServletHolder(easyTransferByPrivateServlet),
-          "/wallet/easytransferbyprivate");
-      context.addServlet(new ServletHolder(easyTransferAssetServlet), "/wallet/easytransferasset");
-      context.addServlet(new ServletHolder(easyTransferAssetByPrivateServlet),
-          "/wallet/easytransferassetbyprivate");
-      context.addServlet(new ServletHolder(generateAddressServlet), "/wallet/generateaddress");
       context.addServlet(new ServletHolder(validateAddressServlet), "/wallet/validateaddress");
       context.addServlet(new ServletHolder(deployContractServlet), "/wallet/deploycontract");
       context.addServlet(new ServletHolder(triggerSmartContractServlet),
           "/wallet/triggersmartcontract");
       context.addServlet(new ServletHolder(triggerConstantContractServlet),
           "/wallet/triggerconstantcontract");
+      context.addServlet(new ServletHolder(estimateEnergyServlet), "/wallet/estimateenergy");
       context.addServlet(new ServletHolder(getContractServlet), "/wallet/getcontract");
       context.addServlet(new ServletHolder(getContractInfoServlet), "/wallet/getcontractinfo");
       context.addServlet(new ServletHolder(clearABIServlet), "/wallet/clearabi");
@@ -429,8 +439,6 @@ public class FullNodeHttpApiService implements Service {
           "/wallet/getchainparameters");
       context.addServlet(new ServletHolder(getAccountResourceServlet),
           "/wallet/getaccountresource");
-      context.addServlet(new ServletHolder(addTransactionSignServlet),
-          "/wallet/addtransactionsign");
       context.addServlet(new ServletHolder(getTransactionSignWeightServlet),
           "/wallet/getsignweight");
       context.addServlet(new ServletHolder(getTransactionApprovedListServlet),
@@ -442,9 +450,20 @@ public class FullNodeHttpApiService implements Service {
       context.addServlet(new ServletHolder(updateEnergyLimitServlet), "/wallet/updateenergylimit");
       context.addServlet(new ServletHolder(getDelegatedResourceServlet),
           "/wallet/getdelegatedresource");
+      context.addServlet(new ServletHolder(getDelegatedResourceV2Servlet),
+              "/wallet/getdelegatedresourcev2");
+      context.addServlet(new ServletHolder(getCanDelegatedMaxSizeServlet),
+              "/wallet/getcandelegatedmaxsize");
+      context.addServlet(new ServletHolder(getAvailableUnfreezeCountServlet),
+              "/wallet/getavailableunfreezecount");
+      context.addServlet(new ServletHolder(getCanWithdrawUnfreezeAmountServlet),
+              "/wallet/getcanwithdrawunfreezeamount");
       context.addServlet(
           new ServletHolder(getDelegatedResourceAccountIndexServlet),
           "/wallet/getdelegatedresourceaccountindex");
+      context.addServlet(
+              new ServletHolder(getDelegatedResourceAccountIndexV2Servlet),
+              "/wallet/getdelegatedresourceaccountindexv2");
       context.addServlet(new ServletHolder(setAccountServlet), "/wallet/setaccountid");
       context.addServlet(new ServletHolder(getAccountByIdServlet), "/wallet/getaccountbyid");
       context
@@ -525,10 +544,26 @@ public class FullNodeHttpApiService implements Service {
           "/wallet/getblockbalance");
       context.addServlet(new ServletHolder(getBurnTrxServlet), "/wallet/getburntrx");
       context.addServlet(new ServletHolder(getTransactionFromPendingServlet),
-              "/wallet/gettransactionfrompending");
+          "/wallet/gettransactionfrompending");
       context.addServlet(new ServletHolder(getTransactionListFromPendingServlet),
-              "/wallet/gettransactionlistfrompending");
+          "/wallet/gettransactionlistfrompending");
       context.addServlet(new ServletHolder(getPendingSizeServlet), "/wallet/getpendingsize");
+      context.addServlet(new ServletHolder(getEnergyPricesServlet), "/wallet/getenergyprices");
+      context.addServlet(new ServletHolder(getBandwidthPricesServlet),
+          "/wallet/getbandwidthprices");
+      context.addServlet(new ServletHolder(getBlockServlet), "/wallet/getblock");
+      context.addServlet(new ServletHolder(getMemoFeePricesServlet), "/wallet/getmemofee");
+
+      context.addServlet(new ServletHolder(freezeBalanceV2Servlet),
+          "/wallet/freezebalancev2");
+      context.addServlet(new ServletHolder(unFreezeBalanceV2Servlet),
+          "/wallet/unfreezebalancev2");
+      context.addServlet(new ServletHolder(withdrawExpireUnfreezeServlet),
+          "/wallet/withdrawexpireunfreeze");
+      context.addServlet(new ServletHolder(delegateResourceServlet),
+          "/wallet/delegateresource");
+      context.addServlet(new ServletHolder(unDelegateResourceServlet),
+          "/wallet/undelegateresource");
 
       int maxHttpConnectNumber = Args.getInstance().getMaxHttpConnectNumber();
       if (maxHttpConnectNumber > 0) {
@@ -540,7 +575,17 @@ public class FullNodeHttpApiService implements Service {
       context.addFilter(new FilterHolder(liteFnQueryHttpFilter), "/*",
           EnumSet.allOf(DispatcherType.class));
 
-      // filter
+      // http access filter, it should have higher priority than HttpInterceptor
+      context.addFilter(new FilterHolder(httpApiAccessFilter), "/*",
+          EnumSet.allOf(DispatcherType.class));
+      // note: if the pathSpec of servlet is not started with wallet, it should be included here
+      context.getServletHandler().getFilterMappings()[1]
+          .setPathSpecs(new String[] {"/wallet/*",
+              "/net/listnodes",
+              "/monitor/getstatsinfo",
+              "/monitor/getnodeinfo"});
+
+      // metrics filter
       ServletHandler handler = new ServletHandler();
       FilterHolder fh = handler
           .addFilterWithMapping((Class<? extends Filter>) HttpInterceptor.class, "/*",

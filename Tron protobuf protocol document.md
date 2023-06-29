@@ -6,21 +6,21 @@ This is the description of  Google Protobuf implementation of Tron's protocol.
 
 ## Contents 
 
-#### [1.Account](#account)
+#### [1. Account](#account)
 
-#### [2.Witness](#witness)
+#### [2. Witness](#witness)
 
-#### [3.Block](#block)
+#### [3. Block](#block)
 
-#### [4.Transaction](#trans)
+#### [4. Transaction](#trans)
 
-#### [5.Contract](#contract)
+#### [5. Contract](#contract)
 
-#### [6.Network](#net)
+#### [6. Network](#net)
 
 ## Protocols
 
-### <span id="account">1.Account</span>
+### <span id="account">1. Account</span>
 
 Account and account-related messages.
 
@@ -90,7 +90,7 @@ enum AccountType {
 
   `allowance`: the allowance of this account.
 
-  `latest_withdrew_time`: the latest operation time of this account.
+  `latest_withdraw_time`: the latest operation time of this account.
 
   `code`: reserved
 
@@ -186,7 +186,7 @@ message Account {
     
   - Message `AccountId`
   
-    `name`: the name ofthis account.
+    `name`: the name of this account.
   
     `address`: the address of this account.
   
@@ -202,7 +202,7 @@ message Account {
     
   
 
-### <span id="witness"> 2.Witness</span>
+### <span id="witness"> 2. Witness</span>
 
 Witness and witness-related messages.
 
@@ -241,7 +241,7 @@ Witness and witness-related messages.
   ```
 
 
-### <span id="block"> 3.Block</span>
+### <span id="block"> 3. Block</span>
 
 - message `Block`
 
@@ -314,7 +314,7 @@ message BlockHeader {
   
 
 
-### <span id="trans"> 4.Transaction</span>
+### <span id="trans"> 4. Transaction</span>
 
 Transaction and transaction-related messages.
 
@@ -412,7 +412,7 @@ Transaction and transaction-related messages.
 
     `net_fee`: consume yourself trx of net usage.
 
-    `result`: he result of executing transaction.
+    `result`: the result of executing transaction.
 
     ```java
     message ResourceReceipt {
@@ -620,6 +620,13 @@ Transaction and transaction-related messages.
           ClearABIContract = 48;
           UpdateBrokerageContract = 49;
           ShieldedTransferContract = 51;
+          MarketSellAssetContract = 52;
+          MarketCancelOrderContract = 53;
+          FreezeBalanceV2Contract = 54;
+          UnfreezeBalanceV2Contract = 55;
+          WithdrawExpireUnfreezeContract = 56;
+          DelegateResourceContract = 57;
+          UnDelegateResourceContract = 58;
         }
         ContractType type = 1;
         google.protobuf.Any parameter = 2;
@@ -817,7 +824,7 @@ Transaction and transaction-related messages.
   
 
 
-### <span id="contract"> 5.Contract</span>
+### <span id="contract"> 5. Contract</span>
 
 Contract and contract-related messages.
 
@@ -873,6 +880,13 @@ Contract and contract-related messages.
       ClearABIContract = 48;
       UpdateBrokerageContract = 49;
       ShieldedTransferContract = 51;
+      MarketSellAssetContract = 52;
+      MarketCancelOrderContract = 53;
+      FreezeBalanceV2Contract = 54;
+      UnfreezeBalanceV2Contract = 55;
+      WithdrawExpireUnfreezeContract = 56;
+      DelegateResourceContract = 57;
+      UnDelegateResourceContract = 58;
     }
     ContractType type = 1;
     google.protobuf.Any parameter = 2;
@@ -1853,7 +1867,7 @@ message `SmartContract` has mutiple attributes and nested message `ABI`
     }
     ```
 
-### <span id="net"> 6.Network</span>
+### <span id="net"> 6. Network</span>
 
 - #### Inventory
 
@@ -2019,7 +2033,7 @@ message `SmartContract` has mutiple attributes and nested message `ABI`
       TOO_MANY_PEERS = 0x04;
       DUPLICATE_PEER = 0x05;
       INCOMPATIBLE_PROTOCOL = 0x06;
-      NULL_IDENTITY = 0x07;
+      RANDOM_ELIMINATION = 0x07;
       PEER_QUITING = 0x08;
       UNEXPECTED_IDENTITY = 0x09;
       LOCAL_IDENTITY = 0x0A;

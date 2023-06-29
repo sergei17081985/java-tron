@@ -4,6 +4,7 @@ import static org.tron.common.utils.Commons.decodeFromBase58Check;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
@@ -22,12 +23,13 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.bouncycastle.util.encoders.Hex;
 import org.eclipse.jetty.util.StringUtil;
-import org.spongycastle.util.encoders.Hex;
+import org.tron.api.GrpcAPI;
 import org.tron.api.GrpcAPI.BlockList;
-import org.tron.api.GrpcAPI.EasyTransferResponse;
 import org.tron.api.GrpcAPI.TransactionApprovedList;
 import org.tron.api.GrpcAPI.TransactionExtention;
+import org.tron.api.GrpcAPI.TransactionIdList;
 import org.tron.api.GrpcAPI.TransactionList;
 import org.tron.api.GrpcAPI.TransactionSignWeight;
 import org.tron.common.crypto.Hash;
@@ -57,6 +59,7 @@ public class Util {
   public static final String PERMISSION_ID = "Permission_id";
   public static final String VISIBLE = "visible";
   public static final String TRANSACTION = "transaction";
+  public static final String TRANSACTION_EXTENSION = "transactionExtension";
   public static final String VALUE = "value";
   public static final String CONTRACT_TYPE = "contractType";
   public static final String EXTRA_DATA = "extra_data";
@@ -113,18 +116,18 @@ public class Util {
     return jsonObject.toJSONString();
   }
 
+  public static String printTransactionIdList(TransactionIdList list, boolean selfType) {
+    JSONObject jsonObject = JSONObject.parseObject(JsonFormat.printToString(list, selfType));
+
+    return jsonObject.toJSONString();
+  }
+
   public static JSONArray printTransactionListToJSON(List<TransactionCapsule> list,
       boolean selfType) {
     JSONArray transactions = new JSONArray();
     list.stream().forEach(transactionCapsule -> transactions
         .add(printTransactionToJSON(transactionCapsule.getInstance(), selfType)));
     return transactions;
-  }
-
-  public static String printEasyTransferResponse(EasyTransferResponse response, boolean selfType) {
-    JSONObject jsonResponse = JSONObject.parseObject(JsonFormat.printToString(response, selfType));
-    jsonResponse.put(TRANSACTION, printTransactionToJSON(response.getTransaction(), selfType));
-    return jsonResponse.toJSONString();
   }
 
   public static String printTransaction(Transaction transaction, boolean selfType) {
@@ -152,6 +155,11 @@ public class Util {
       jsonObject.put(TRANSACTION, transactionObject);
     }
     return jsonObject.toJSONString();
+  }
+
+  public static String printEstimateEnergyMessage(GrpcAPI.EstimateEnergyMessage message,
+      boolean selfType) {
+    return JsonFormat.printToString(message, selfType);
   }
 
   public static String printTransactionSignWeight(TransactionSignWeight transactionSignWeight,
@@ -245,17 +253,26 @@ public class Util {
     return jsonTransaction;
   }
 
+  /**
+   * Note: the contracts of the returned transaction may be empty
+   */
   public static Transaction packTransaction(String strTransaction, boolean selfType) {
-    JSONObject jsonTransaction = JSONObject.parseObject(strTransaction);
+    JSONObject jsonTransaction = JSON.parseObject(strTransaction);
     JSONObject rawData = jsonTransaction.getJSONObject("raw_data");
     JSONArray contracts = new JSONArray();
     JSONArray rawContractArray = rawData.getJSONArray("contract");
 
+    String contractType = null;
     for (int i = 0; i < rawContractArray.size(); i++) {
       try {
         JSONObject contract = rawContractArray.getJSONObject(i);
         JSONObject parameter = contract.getJSONObject(PARAMETER);
-        String contractType = contract.getString("type");
+        contractType = contract.getString("type");
+        if (StringUtils.isEmpty(contractType)) {
+          logger.debug("no type in the transaction, ignore");
+          continue;
+        }
+
         Any any = null;
         Class clazz = TransactionFactory.getContract(ContractType.valueOf(contractType));
         if (clazz != null) {
@@ -272,8 +289,14 @@ public class Util {
           contract.put(PARAMETER, parameter);
           contracts.add(contract);
         }
+      } catch (IllegalArgumentException e) {
+        logger.debug("invalid contractType: {}", contractType);
       } catch (ParseException e) {
         logger.debug("ParseException: {}", e.getMessage());
+      } catch (ClassCastException e) {
+        logger.debug("ClassCastException: {}", e.getMessage());
+      } catch (JSONException e) {
+        logger.debug("JSONException: {}", e.getMessage());
       } catch (Exception e) {
         logger.error("", e);
       }
@@ -343,15 +366,22 @@ public class Util {
       Transaction transaction) {
     if (jsonObject.containsKey(PERMISSION_ID)) {
       int permissionId = jsonObject.getInteger(PERMISSION_ID);
-      if (permissionId > 0) {
-        Transaction.raw.Builder raw = transaction.getRawData().toBuilder();
-        Transaction.Contract.Builder contract = raw.getContract(0).toBuilder()
-            .setPermissionId(permissionId);
-        raw.clearContract();
-        raw.addContract(contract);
-        return transaction.toBuilder().setRawData(raw).build();
-      }
+      return setTransactionPermissionId(permissionId, transaction);
     }
+
+    return transaction;
+  }
+
+  public static Transaction setTransactionPermissionId(int permissionId, Transaction transaction) {
+    if (permissionId > 0) {
+      Transaction.raw.Builder raw = transaction.getRawData().toBuilder();
+      Transaction.Contract.Builder contract = raw.getContract(0).toBuilder()
+          .setPermissionId(permissionId);
+      raw.clearContract();
+      raw.addContract(contract);
+      return transaction.toBuilder().setRawData(raw).build();
+    }
+
     return transaction;
   }
 
@@ -359,16 +389,24 @@ public class Util {
       Transaction transaction, boolean visible) {
     if (jsonObject.containsKey(EXTRA_DATA)) {
       String data = jsonObject.getString(EXTRA_DATA);
-      if (data.length() > 0) {
-        Transaction.raw.Builder raw = transaction.getRawData().toBuilder();
-        if (visible) {
-          raw.setData(ByteString.copyFrom(data.getBytes()));
-        } else {
-          raw.setData(ByteString.copyFrom(ByteArray.fromHexString(data)));
-        }
-        return transaction.toBuilder().setRawData(raw).build();
-      }
+      return setTransactionExtraData(data, transaction, visible);
     }
+
+    return transaction;
+  }
+
+  public static Transaction setTransactionExtraData(String data, Transaction transaction,
+      boolean visible) {
+    if (data.length() > 0) {
+      Transaction.raw.Builder raw = transaction.getRawData().toBuilder();
+      if (visible) {
+        raw.setData(ByteString.copyFrom(data.getBytes()));
+      } else {
+        raw.setData(ByteString.copyFrom(ByteArray.fromHexString(data)));
+      }
+      return transaction.toBuilder().setRawData(raw).build();
+    }
+
     return transaction;
   }
 
@@ -505,8 +543,10 @@ public class Util {
       String input = request.getReader().lines()
           .collect(Collectors.joining(System.lineSeparator()));
       Util.checkBodySize(input);
-      JSONObject jsonObject = JSONObject.parseObject(input);
-      addressStr = jsonObject.getString(addressParam);
+      JSONObject jsonObject = JSON.parseObject(input);
+      if (jsonObject != null) {
+        addressStr = jsonObject.getString(addressParam);
+      }
     }
     if (StringUtils.isNotBlank(addressStr)) {
       if (StringUtils.startsWith(addressStr, Constant.ADD_PRE_FIX_STRING_MAINNET)) {

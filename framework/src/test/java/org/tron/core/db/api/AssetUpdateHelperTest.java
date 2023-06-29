@@ -7,7 +7,7 @@ import java.io.File;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.testng.annotations.Test;
+import org.junit.Test;
 import org.tron.common.application.Application;
 import org.tron.common.application.ApplicationFactory;
 import org.tron.common.application.TronApplicationContext;
@@ -146,9 +146,9 @@ public class AssetUpdateHelperTest {
               ByteString.copyFrom(ByteArray.fromString("1000001")),
               accountCapsule.getAssetIssuedID());
 
-      Assert.assertEquals(1, accountCapsule.getAssetMapV2().size());
+      Assert.assertEquals(1, accountCapsule.getAssetV2MapForTest().size());
 
-      Assert.assertEquals(100L, accountCapsule.getAssetMapV2().get("1000001").longValue());
+      Assert.assertEquals(100L, accountCapsule.getAssetV2MapForTest().get("1000001").longValue());
 
       Assert.assertEquals(1, accountCapsule.getAllFreeAssetNetUsageV2().size());
 
@@ -161,7 +161,5 @@ public class AssetUpdateHelperTest {
               30000000L,
               accountCapsule.getLatestAssetOperationTimeMapV2().get("1000001").longValue());
     }
-
-    removeDb();
   }
 }

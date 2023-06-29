@@ -7,9 +7,7 @@ import java.util.Objects;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.spongycastle.util.encoders.Hex;
 import org.springframework.util.StringUtils;
-import org.tron.common.parameter.CommonParameter;
 import org.tron.common.runtime.InternalTransaction.TrxType;
 import org.tron.common.runtime.ProgramResult;
 import org.tron.common.runtime.Runtime;
@@ -30,14 +28,20 @@ import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractValidateException;
 import org.tron.core.exception.ReceiptCheckErrException;
 import org.tron.core.exception.VMIllegalException;
-import org.tron.core.store.*;
+import org.tron.core.store.AbiStore;
+import org.tron.core.store.AccountStore;
+import org.tron.core.store.CodeStore;
+import org.tron.core.store.ContractStore;
+import org.tron.core.store.DynamicPropertiesStore;
+import org.tron.core.store.StoreFactory;
 import org.tron.protos.Protocol.Transaction;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
 import org.tron.protos.Protocol.Transaction.Result.contractResult;
+import org.tron.protos.contract.Common;
 import org.tron.protos.contract.SmartContractOuterClass.SmartContract.ABI;
 import org.tron.protos.contract.SmartContractOuterClass.TriggerSmartContract;
 
-@Slf4j(topic = "TransactionTrace")
+@Slf4j(topic = "DB")
 public class TransactionTrace {
 
   private TransactionCapsule trx;
@@ -56,6 +60,8 @@ public class TransactionTrace {
 
   private CodeStore codeStore;
 
+  private AbiStore abiStore;
+
   private EnergyProcessor energyProcessor;
 
   private TrxType trxType;
@@ -63,10 +69,6 @@ public class TransactionTrace {
   private Runtime runtime;
 
   private ForkController forkController;
-
-  private VotesStore votesStore;
-
-  private DelegationStore delegationStore;
 
   @Getter
   private TransactionContext transactionContext;
@@ -96,6 +98,7 @@ public class TransactionTrace {
     this.dynamicPropertiesStore = storeFactory.getChainBaseManager().getDynamicPropertiesStore();
     this.contractStore = storeFactory.getChainBaseManager().getContractStore();
     this.codeStore = storeFactory.getChainBaseManager().getCodeStore();
+    this.abiStore = storeFactory.getChainBaseManager().getAbiStore();
     this.accountStore = storeFactory.getChainBaseManager().getAccountStore();
     this.accountAssetIssueStore = storeFactory.getChainBaseManager().getAccountAssetIssueStore();
 
@@ -104,9 +107,6 @@ public class TransactionTrace {
     this.runtime = runtime;
     this.forkController = new ForkController();
     forkController.init(storeFactory.getChainBaseManager());
-
-    this.votesStore = storeFactory.getChainBaseManager().getVotesStore();
-    this.delegationStore = storeFactory.getChainBaseManager().getDelegationStore();
   }
 
   public TransactionCapsule getTrx() {
@@ -138,11 +138,10 @@ public class TransactionTrace {
       ContractCapsule contract = contractStore
           .get(triggerContractFromTransaction.getContractAddress().toByteArray());
       if (contract == null) {
-        logger.info("contract: {} is not in contract store", StringUtil
-            .encode58Check(triggerContractFromTransaction.getContractAddress().toByteArray()));
-        throw new ContractValidateException("contract: " + StringUtil
-            .encode58Check(triggerContractFromTransaction.getContractAddress().toByteArray())
-            + " is not in contract store");
+        throw new ContractValidateException(String.format("contract: %s is not in contract store",
+            StringUtil.encode58Check(triggerContractFromTransaction
+                .getContractAddress().toByteArray())));
+
       }
       ABI abi = contract.getInstance().getAbi();
       if (WalletUtil.isConstant(abi, triggerContractFromTransaction)) {
@@ -157,6 +156,13 @@ public class TransactionTrace {
       energyUsage = 0L;
     }
     receipt.setEnergyUsageTotal(energyUsage);
+  }
+
+  public void setPenalty(long energyPenalty) {
+    if (energyPenalty < 0) {
+      energyPenalty = 0L;
+    }
+    receipt.setEnergyPenaltyTotal(energyPenalty);
   }
 
   //set net bill
@@ -180,6 +186,7 @@ public class TransactionTrace {
     /*  VM execute  */
     runtime.execute(transactionContext);
     setBill(transactionContext.getProgramResult().getEnergyUsed());
+    setPenalty(transactionContext.getProgramResult().getEnergyPenaltyTotal());
 
 //    if (TrxType.TRX_PRECOMPILED_TYPE != trxType) {
 //      if (contractResult.OUT_OF_TIME
@@ -193,6 +200,14 @@ public class TransactionTrace {
 //    }
   }
 
+  public void saveEnergyLeftOfOrigin(long energyLeft) {
+    receipt.setOriginEnergyLeft(energyLeft);
+  }
+
+  public void saveEnergyLeftOfCaller(long energyLeft) {
+    receipt.setCallerEnergyLeft(energyLeft);
+  }
+
   public void finalization() throws ContractExeException {
     try {
       pay();
@@ -201,13 +216,7 @@ public class TransactionTrace {
     }
     if (StringUtils.isEmpty(transactionContext.getProgramResult().getRuntimeError())) {
       for (DataWord contract : transactionContext.getProgramResult().getDeleteAccounts()) {
-        deleteContract(convertToTronAddress((contract.getLast20Bytes())));
-      }
-      for (DataWord address : transactionContext.getProgramResult().getDeleteVotes()) {
-        votesStore.delete(convertToTronAddress((address.getLast20Bytes())));
-      }
-      for (DataWord address : transactionContext.getProgramResult().getDeleteDelegation()) {
-        deleteDelegationByAddress(convertToTronAddress((address.getLast20Bytes())));
+        deleteContract(contract.toTronAddress());
       }
     }
   }
@@ -222,7 +231,7 @@ public class TransactionTrace {
     long originEnergyLimit = 0;
     switch (trxType) {
       case TRX_CONTRACT_CREATION_TYPE:
-        callerAccount = TransactionCapsule.getOwner(trx.getInstance().getRawData().getContract(0));
+        callerAccount = trx.getOwnerAddress();
         originAccount = callerAccount;
         break;
       case TRX_CONTRACT_CALL_TYPE:
@@ -245,6 +254,24 @@ public class TransactionTrace {
     // originAccount Percent = 30%
     AccountCapsule origin = accountStore.get(originAccount);
     AccountCapsule caller = accountStore.get(callerAccount);
+    if (dynamicPropertiesStore.supportUnfreezeDelay()
+        && getRuntimeResult().getException() == null && !getRuntimeResult().isRevert()) {
+
+      // just fo caller is not origin, we set the related field for origin account
+      if (origin != null && !caller.getAddress().equals(origin.getAddress())) {
+        resetAccountUsage(origin,
+            receipt.getOriginEnergyUsage(),
+            receipt.getOriginEnergyWindowSize(),
+            receipt.getOriginEnergyMergedUsage(),
+            receipt.getOriginEnergyMergedWindowSize());
+      }
+
+      resetAccountUsage(caller,
+          receipt.getCallerEnergyUsage(),
+          receipt.getCallerEnergyWindowSize(),
+          receipt.getCallerEnergyMergedUsage(),
+          receipt.getCallerEnergyMergedWindowSize());
+    }
     receipt.payEnergyBill(
         dynamicPropertiesStore, accountStore, forkController,
         origin,
@@ -252,6 +279,23 @@ public class TransactionTrace {
         percent, originEnergyLimit,
         energyProcessor,
         EnergyProcessor.getHeadSlot(dynamicPropertiesStore));
+  }
+
+  private void resetAccountUsage(AccountCapsule accountCap,
+      long usage, long size, long mergedUsage, long mergedSize) {
+    long currentSize = accountCap.getWindowSize(Common.ResourceCode.ENERGY);
+    long currentUsage = accountCap.getEnergyUsage();
+    // Drop the pre consumed frozen energy
+    long newArea = currentUsage * currentSize
+        - (mergedUsage * mergedSize - usage * size);
+    // If area merging happened during suicide, use the current window size
+    long newSize = mergedSize == currentSize ? size : currentSize;
+    // Calc new usage by fixed x-axes
+    long newUsage = Long.max(0, newArea / newSize);
+    // Reset account usage and window size
+    accountCap.setEnergyUsage(newUsage);
+    accountCap.setNewWindowSize(Common.ResourceCode.ENERGY,
+        newUsage == 0 ? 0L : newSize);
   }
 
   public boolean checkNeedRetry() {
@@ -267,14 +311,13 @@ public class TransactionTrace {
       return;
     }
     if (Objects.isNull(trx.getContractRet())) {
-      throw new ReceiptCheckErrException("null resultCode");
+      throw new ReceiptCheckErrException(
+          String.format("null resultCode id: %s", trx.getTransactionId()));
     }
     if (!trx.getContractRet().equals(receipt.getResult())) {
-      logger.info(
-          "this tx id: {}, the resultCode in received block: {}, the resultCode in self: {}",
-          Hex.toHexString(trx.getTransactionId().getBytes()), trx.getContractRet(),
-          receipt.getResult());
-      throw new ReceiptCheckErrException("Different resultCode");
+      throw new ReceiptCheckErrException(String.format(
+          "different resultCode txId: %s, expect: %s, actual: %s",
+          trx.getTransactionId(), trx.getContractRet(), receipt.getResult()));
     }
   }
 
@@ -302,6 +345,7 @@ public class TransactionTrace {
   }
 
   public void deleteContract(byte[] address) {
+    abiStore.delete(address);
     codeStore.delete(address);
     accountStore.delete(address);
     contractStore.delete(address);
@@ -318,13 +362,6 @@ public class TransactionTrace {
     }
     return address;
   }
-
-  public void deleteDelegationByAddress(byte[] address){
-    delegationStore.delete(address); //begin Cycle
-    delegationStore.delete(("lastWithdraw-" + Hex.toHexString(address)).getBytes()); //last Withdraw cycle
-    delegationStore.delete(("end-" + Hex.toHexString(address)).getBytes()); //end cycle
-  }
-
 
   public enum TimeResultType {
     NORMAL,

@@ -95,7 +95,6 @@ import org.tron.protos.Protocol.AccountType;
 import org.tron.protos.Protocol.Block;
 import org.tron.protos.Protocol.Transaction;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
-import org.tron.protos.Protocol.TransactionSign;
 import org.tron.protos.contract.AssetIssueContractOuterClass.AssetIssueContract;
 import org.tron.protos.contract.ShieldContract.IncrementalMerkleVoucherInfo;
 import org.tron.protos.contract.ShieldContract.OutputPoint;
@@ -104,6 +103,7 @@ import org.tron.protos.contract.ShieldContract.PedersenHash;
 import org.tron.protos.contract.ShieldContract.ReceiveDescription;
 import org.tron.protos.contract.ShieldContract.ShieldedTransferContract;
 import org.tron.protos.contract.ShieldContract.SpendDescription;
+import stest.tron.wallet.common.client.utils.TransactionUtils;
 
 @Slf4j
 public class ShieldedReceiveTest extends BlockGenerate {
@@ -348,13 +348,8 @@ public class ShieldedReceiveTest extends BlockGenerate {
     TransactionCapsule transactionCap = builder.build();
 
     //Add public address sign
-    TransactionSign.Builder transactionSignBuild = TransactionSign.newBuilder();
-    transactionSignBuild.setTransaction(transactionCap.getInstance());
-    transactionSignBuild.setPrivateKey(ByteString.copyFrom(
-        ByteArray.fromHexString(ADDRESS_ONE_PRIVATE_KEY)));
-
-    transactionCap = transactionUtil.addSign(transactionSignBuild.build());
-
+    transactionCap = TransactionUtils.addTransactionSign(transactionCap.getInstance(),
+            ADDRESS_ONE_PRIVATE_KEY, chainBaseManager.getAccountStore());
     try {
       dbManager.pushTransaction(transactionCap);
       Assert.assertFalse(true);

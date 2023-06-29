@@ -12,21 +12,29 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.tron.common.application.Service;
 import org.tron.common.parameter.CommonParameter;
 import org.tron.core.config.args.Args;
+import org.tron.core.services.filter.HttpApiAccessFilter;
 import org.tron.core.services.filter.LiteFnQueryHttpFilter;
+import org.tron.core.services.interfaceOnPBFT.http.EstimateEnergyOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetAccountByIdOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetAccountOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetAssetIssueByIdOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetAssetIssueByNameOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetAssetIssueListByNameOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetAssetIssueListOnPBFTServlet;
+import org.tron.core.services.interfaceOnPBFT.http.GetAvailableUnfreezeCountOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetBlockByIdOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetBlockByLatestNumOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetBlockByLimitNextOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetBlockByNumOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetBrokerageOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetBurnTrxOnPBFTServlet;
+import org.tron.core.services.interfaceOnPBFT.http.GetCanDelegatedMaxSizeOnPBFTServlet;
+import org.tron.core.services.interfaceOnPBFT.http.GetCanWithdrawUnfreezeAmountOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetDelegatedResourceAccountIndexOnPBFTServlet;
+import org.tron.core.services.interfaceOnPBFT.http.GetDelegatedResourceAccountIndexV2OnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetDelegatedResourceOnPBFTServlet;
+import org.tron.core.services.interfaceOnPBFT.http.GetDelegatedResourceV2OnPBFTServlet;
+import org.tron.core.services.interfaceOnPBFT.http.GetEnergyPricesOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetExchangeByIdOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetMarketOrderByAccountOnPBFTServlet;
 import org.tron.core.services.interfaceOnPBFT.http.GetMarketOrderByIdOnPBFTServlet;
@@ -120,9 +128,12 @@ public class HttpApiOnPBFTService implements Service {
   private GetRewardOnPBFTServlet getRewardServlet;
   @Autowired
   private TriggerConstantContractOnPBFTServlet triggerConstantContractOnPBFTServlet;
-
+  @Autowired
+  private EstimateEnergyOnPBFTServlet estimateEnergyOnPBFTServlet;
   @Autowired
   private LiteFnQueryHttpFilter liteFnQueryHttpFilter;
+  @Autowired
+  private HttpApiAccessFilter httpApiAccessFilter;
 
   @Autowired
   private GetMarketOrderByAccountOnPBFTServlet getMarketOrderByAccountOnPBFTServlet;
@@ -144,6 +155,23 @@ public class HttpApiOnPBFTService implements Service {
       isShieldedTRC20ContractNoteSpentOnPBFTServlet;
   @Autowired
   private GetBurnTrxOnPBFTServlet getBurnTrxOnPBFTServlet;
+  @Autowired
+  private GetEnergyPricesOnPBFTServlet getEnergyPricesOnPBFTServlet;
+
+  @Autowired
+  private GetBlockOnPBFTServlet getBlockOnPBFTServlet;
+
+  @Autowired
+  private GetAvailableUnfreezeCountOnPBFTServlet getAvailableUnfreezeCountOnPBFTServlet;
+  @Autowired
+  private GetCanDelegatedMaxSizeOnPBFTServlet getCanDelegatedMaxSizeOnPBFTServlet;
+  @Autowired
+  private GetCanWithdrawUnfreezeAmountOnPBFTServlet getCanWithdrawUnfreezeAmountOnPBFTServlet;
+  @Autowired
+  private GetDelegatedResourceAccountIndexV2OnPBFTServlet
+      getDelegatedResourceAccountIndexV2OnPBFTServlet;
+  @Autowired
+  private GetDelegatedResourceV2OnPBFTServlet getDelegatedResourceV2OnPBFTServlet;
 
   @Override
   public void init() {
@@ -197,6 +225,7 @@ public class HttpApiOnPBFTService implements Service {
       context.addServlet(new ServletHolder(isSpendOnPBFTServlet), "/isspend");
       context.addServlet(new ServletHolder(triggerConstantContractOnPBFTServlet),
           "/triggerconstantcontract");
+      context.addServlet(new ServletHolder(estimateEnergyOnPBFTServlet), "/estimateenergy");
 
       // only for PBFTNode
       context.addServlet(new ServletHolder(getTransactionByIdOnPBFTServlet), "/gettransactionbyid");
@@ -229,6 +258,21 @@ public class HttpApiOnPBFTService implements Service {
           "/isshieldedtrc20contractnotespent");
       context.addServlet(new ServletHolder(getBurnTrxOnPBFTServlet),
           "/getburntrx");
+      context.addServlet(new ServletHolder(getEnergyPricesOnPBFTServlet),
+          "/getenergyprices");
+      context.addServlet(new ServletHolder(getBlockOnPBFTServlet),
+          "/getblock");
+
+      context.addServlet(new ServletHolder(getAvailableUnfreezeCountOnPBFTServlet),
+          "/getavailableunfreezecount");
+      context.addServlet(new ServletHolder(getCanDelegatedMaxSizeOnPBFTServlet),
+          "/getcandelegatedmaxsize");
+      context.addServlet(new ServletHolder(getCanWithdrawUnfreezeAmountOnPBFTServlet),
+          "/getcanwithdrawunfreezeamount");
+      context.addServlet(new ServletHolder(getDelegatedResourceAccountIndexV2OnPBFTServlet),
+          "/getdelegatedresourceaccountindexv2");
+      context.addServlet(new ServletHolder(getDelegatedResourceV2OnPBFTServlet),
+          "/getdelegatedresourcev2");
 
       int maxHttpConnectNumber = Args.getInstance().getMaxHttpConnectNumber();
       if (maxHttpConnectNumber > 0) {
@@ -238,6 +282,10 @@ public class HttpApiOnPBFTService implements Service {
       // filters the specified APIs
       // when node is lite fullnode and openHistoryQueryWhenLiteFN is false
       context.addFilter(new FilterHolder(liteFnQueryHttpFilter), "/*",
+          EnumSet.allOf(DispatcherType.class));
+
+      // api access filter
+      context.addFilter(new FilterHolder(httpApiAccessFilter), "/*",
           EnumSet.allOf(DispatcherType.class));
 
       server.start();

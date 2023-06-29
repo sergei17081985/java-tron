@@ -4,18 +4,21 @@ import static org.tron.core.config.Parameter.ChainConstant.BLOCK_PRODUCED_INTERV
 
 import com.google.protobuf.ByteString;
 import java.util.List;
+import javax.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.tron.common.storage.metric.DbStatService;
 import org.tron.common.utils.ForkController;
 import org.tron.common.utils.Sha256Hash;
 import org.tron.common.zksnark.MerkleContainer;
 import org.tron.core.capsule.BlockCapsule;
 import org.tron.core.capsule.BlockCapsule.BlockId;
 import org.tron.core.capsule.TransactionCapsule;
+import org.tron.core.capsule.utils.AssetUtil;
 import org.tron.core.capsule.utils.BlockUtil;
 import org.tron.core.db.BlockIndexStore;
 import org.tron.core.db.BlockStore;
@@ -24,12 +27,15 @@ import org.tron.core.db.CommonStore;
 import org.tron.core.db.KhaosDatabase;
 import org.tron.core.db.PbftSignDataStore;
 import org.tron.core.db.RecentBlockStore;
+import org.tron.core.db.RecentTransactionStore;
 import org.tron.core.db.TransactionStore;
 import org.tron.core.db2.core.ITronChainBase;
 import org.tron.core.exception.BadItemException;
 import org.tron.core.exception.HeaderNotFound;
 import org.tron.core.exception.ItemNotFoundException;
 import org.tron.core.service.MortgageService;
+import org.tron.core.store.AbiStore;
+import org.tron.core.store.AccountAssetStore;
 import org.tron.core.store.AccountIdIndexStore;
 import org.tron.core.store.AccountIndexStore;
 import org.tron.core.store.AccountStore;
@@ -38,6 +44,7 @@ import org.tron.core.store.AssetIssueStore;
 import org.tron.core.store.AssetIssueV2Store;
 import org.tron.core.store.BalanceTraceStore;
 import org.tron.core.store.CodeStore;
+import org.tron.core.store.ContractStateStore;
 import org.tron.core.store.ContractStore;
 import org.tron.core.store.DelegatedResourceAccountIndexStore;
 import org.tron.core.store.DelegatedResourceStore;
@@ -52,6 +59,7 @@ import org.tron.core.store.MarketPairPriceToOrderStore;
 import org.tron.core.store.MarketPairToPriceStore;
 import org.tron.core.store.NullifierStore;
 import org.tron.core.store.ProposalStore;
+import org.tron.core.store.SectionBloomStore;
 import org.tron.core.store.StorageRowStore;
 import org.tron.core.store.TransactionHistoryStore;
 import org.tron.core.store.TransactionRetStore;
@@ -60,11 +68,13 @@ import org.tron.core.store.VotesStore;
 import org.tron.core.store.WitnessScheduleStore;
 import org.tron.core.store.WitnessStore;
 import org.tron.core.store.ZKProofStore;
-import org.tron.core.store.AccountAssetIssueStore;
 
 @Slf4j(topic = "DB")
 @Component
 public class ChainBaseManager {
+
+  @Getter
+  private static volatile ChainBaseManager chainBaseManager;
 
   // db store
   @Autowired
@@ -72,7 +82,7 @@ public class ChainBaseManager {
   private AccountStore accountStore;
   @Autowired
   @Getter
-  private AccountAssetIssueStore accountAssetIssueStore;
+  private AccountAssetStore accountAssetStore;
   @Autowired
   @Getter
   private BlockStore blockStore;
@@ -126,10 +136,16 @@ public class ChainBaseManager {
   private MarketPairToPriceStore marketPairToPriceStore;
   @Autowired
   @Getter
+  private AbiStore abiStore;
+  @Autowired
+  @Getter
   private CodeStore codeStore;
   @Autowired
   @Getter
   private ContractStore contractStore;
+  @Autowired
+  @Getter
+  private ContractStateStore contractStateStore;
   @Autowired
   @Getter
   private DelegatedResourceStore delegatedResourceStore;
@@ -181,6 +197,9 @@ public class ChainBaseManager {
   private RecentBlockStore recentBlockStore;
   @Autowired
   @Getter
+  private RecentTransactionStore recentTransactionStore;
+  @Autowired
+  @Getter
   private TransactionHistoryStore transactionHistoryStore;
 
   @Getter
@@ -211,18 +230,34 @@ public class ChainBaseManager {
   @Setter
   private TreeBlockIndexStore merkleTreeIndexStore;
 
+  @Autowired
+  @Getter
+  private SectionBloomStore sectionBloomStore;
+
+  @Autowired
+  private DbStatService dbStatService;
+
+  @Getter
+  @Setter
+  private NodeType nodeType;
+
+  @Getter
+  @Setter
+  private long lowestBlockNum = -1; // except num = 0.
+
   public void closeOneStore(ITronChainBase database) {
-    logger.info("******** begin to close " + database.getName() + " ********");
+    logger.info("******** Begin to close {}. ********",  database.getName());
     try {
       database.close();
     } catch (Exception e) {
-      logger.info("failed to close  " + database.getName() + ". " + e);
+      logger.info("Failed to close {}.", database.getName(), e);
     } finally {
-      logger.info("******** end to close " + database.getName() + " ********");
+      logger.info("******** End to close {}. ********", database.getName());
     }
   }
 
   public void closeAllStore() {
+    dbStatService.shutdown();
     closeOneStore(transactionRetStore);
     closeOneStore(recentBlockStore);
     closeOneStore(transactionHistoryStore);
@@ -235,8 +270,10 @@ public class ChainBaseManager {
     closeOneStore(witnessScheduleStore);
     closeOneStore(assetIssueStore);
     closeOneStore(dynamicPropertiesStore);
+    closeOneStore(abiStore);
     closeOneStore(codeStore);
     closeOneStore(contractStore);
+    closeOneStore(contractStateStore);
     closeOneStore(storageRowStore);
     closeOneStore(exchangeStore);
     closeOneStore(proposalStore);
@@ -252,6 +289,8 @@ public class ChainBaseManager {
     closeOneStore(commonStore);
     closeOneStore(commonDataBase);
     closeOneStore(pbftSignDataStore);
+    closeOneStore(sectionBloomStore);
+    closeOneStore(accountAssetStore);
   }
 
   // for test only
@@ -272,8 +311,7 @@ public class ChainBaseManager {
     if (CollectionUtils.isNotEmpty(blocks)) {
       return blocks.get(0);
     } else {
-      logger.info("Header block Not Found");
-      throw new HeaderNotFound("Header block Not Found");
+      throw new HeaderNotFound("header block not found");
     }
   }
 
@@ -341,7 +379,7 @@ public class ChainBaseManager {
    * judge has blocks.
    */
   public boolean hasBlocks() {
-    return getBlockStore().iterator().hasNext() || this.khaosDb.hasData();
+    return getBlockStore().isNotEmpty() || this.khaosDb.hasData();
   }
 
   public void setBlockReference(TransactionCapsule trans) {
@@ -376,4 +414,37 @@ public class ChainBaseManager {
     return getBlockById(getBlockIdByNum(num));
   }
 
+  public static ChainBaseManager getInstance() {
+    return chainBaseManager;
+  }
+
+  public static synchronized void init(ChainBaseManager manager) {
+    chainBaseManager = manager;
+    AssetUtil.setAccountAssetStore(manager.getAccountAssetStore());
+    AssetUtil.setDynamicPropertiesStore(manager.getDynamicPropertiesStore());
+  }
+
+  @PostConstruct
+  private void init() {
+    this.lowestBlockNum = this.blockIndexStore.getLimitNumber(1, 1).stream()
+            .map(BlockId::getNum).findFirst().orElse(0L);
+    this.nodeType = getLowestBlockNum() > 1 ? NodeType.LITE : NodeType.FULL;
+  }
+
+  public boolean isLiteNode() {
+    return getNodeType() == NodeType.LITE;
+  }
+
+  public enum  NodeType  {
+    FULL(0),
+    LITE(1);
+
+    @Getter
+    private final int type;
+
+    NodeType(int type) {
+      this.type = type;
+    }
+  }
 }
+

@@ -24,9 +24,14 @@ public interface ITronChainBase<T> extends Iterable<Entry<byte[], T>>, Quitable 
 
   T get(byte[] key) throws InvalidProtocolBufferException, ItemNotFoundException, BadItemException;
 
+  T getFromRoot(byte[] key) throws InvalidProtocolBufferException, ItemNotFoundException,
+      BadItemException;
+
   T getUnchecked(byte[] key);
 
   boolean has(byte[] key);
+
+  boolean isNotEmpty();
 
   String getName();
 

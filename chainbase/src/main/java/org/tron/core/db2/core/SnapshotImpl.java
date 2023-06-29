@@ -4,11 +4,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
+import com.google.common.primitives.Bytes;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import lombok.Getter;
 import org.tron.core.db2.common.HashDB;
@@ -23,11 +24,10 @@ public class SnapshotImpl extends AbstractSnapshot<Key, Value> {
   protected Snapshot root;
 
   SnapshotImpl(Snapshot snapshot) {
-    synchronized (this) {
-      db = new HashDB(SnapshotImpl.class.getSimpleName());
-    }
-
     root = snapshot.getRoot();
+    synchronized (this) {
+      db = new HashDB(SnapshotImpl.class.getSimpleName() + ":" + root.getDbName());
+    }
     previous = snapshot;
     snapshot.setNext(this);
   }
@@ -111,6 +111,17 @@ public class SnapshotImpl extends AbstractSnapshot<Key, Value> {
     Snapshot next = getRoot().getNext();
     while (next != null) {
       Streams.stream(((SnapshotImpl) next).db)
+          .forEach(e -> all.put(WrappedByteArray.of(e.getKey().getBytes()),
+              WrappedByteArray.of(e.getValue().getBytes())));
+      next = next.getNext();
+    }
+  }
+
+  synchronized void collect(Map<WrappedByteArray, WrappedByteArray> all, byte[] prefix) {
+    Snapshot next = getRoot().getNext();
+    while (next != null) {
+      Streams.stream(((SnapshotImpl) next).db).filter(e -> Bytes.indexOf(
+              Objects.requireNonNull(e.getKey().getBytes()), prefix) == 0)
           .forEach(e -> all.put(WrappedByteArray.of(e.getKey().getBytes()),
               WrappedByteArray.of(e.getValue().getBytes())));
       next = next.getNext();

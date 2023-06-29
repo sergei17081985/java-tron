@@ -17,8 +17,8 @@ import java.util.Random;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpPost;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.Assert;
-import org.spongycastle.util.encoders.Hex;
 import org.testng.annotations.BeforeSuite;
 import org.tron.api.GrpcAPI;
 import org.tron.api.GrpcAPI.BytesMessage;
@@ -89,7 +89,6 @@ public class ZenTrc20Base {
    */
   @BeforeSuite(enabled = true, description = "Deploy shield trc20 depend contract")
   public void deployShieldTrc20DependContract() {
-    Wallet.setAddressPreFixByte(CommonConstant.ADD_PRE_FIX_BYTE_MAINNET);
     channelFull = ManagedChannelBuilder.forTarget(fullnode)
         .usePlaintext(true)
         .build();

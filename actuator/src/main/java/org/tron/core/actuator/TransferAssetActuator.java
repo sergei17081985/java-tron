@@ -18,13 +18,11 @@ package org.tron.core.actuator;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.tron.common.utils.ByteArray;
 import org.tron.common.utils.Commons;
 import org.tron.common.utils.DecodeUtil;
-import org.tron.core.capsule.AccountAssetIssueCapsule;
 import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.capsule.TransactionResultCapsule;
 import org.tron.core.exception.BalanceInsufficientException;
@@ -34,7 +32,6 @@ import org.tron.core.store.AccountStore;
 import org.tron.core.store.AssetIssueStore;
 import org.tron.core.store.AssetIssueV2Store;
 import org.tron.core.store.DynamicPropertiesStore;
-import org.tron.core.store.AccountAssetIssueStore;
 import org.tron.protos.Protocol.AccountType;
 import org.tron.protos.Protocol.Transaction.Contract.ContractType;
 import org.tron.protos.Protocol.Transaction.Result.code;
@@ -56,8 +53,6 @@ public class TransferAssetActuator extends AbstractActuator {
 
     long fee = calcFee();
     AccountStore accountStore = chainBaseManager.getAccountStore();
-    AccountAssetIssueStore accountAssetIssueStore = chainBaseManager.getAccountAssetIssueStore();
-
     DynamicPropertiesStore dynamicStore = chainBaseManager.getDynamicPropertiesStore();
     AssetIssueStore assetIssueStore = chainBaseManager.getAssetIssueStore();
     try {
@@ -65,8 +60,6 @@ public class TransferAssetActuator extends AbstractActuator {
       byte[] ownerAddress = transferAssetContract.getOwnerAddress().toByteArray();
       byte[] toAddress = transferAssetContract.getToAddress().toByteArray();
       AccountCapsule toAccountCapsule = accountStore.get(toAddress);
-      AccountAssetIssueCapsule toAccountAssetIssueCapsule = accountAssetIssueStore.get(toAddress);
-
       if (toAccountCapsule == null) {
         boolean withDefaultPermission =
             dynamicStore.getAllowMultiSign() == 1;
@@ -76,28 +69,19 @@ public class TransferAssetActuator extends AbstractActuator {
 
         fee = fee + dynamicStore.getCreateNewAccountFeeInSystemContract();
       }
-      if (toAccountAssetIssueCapsule == null) {
-        toAccountAssetIssueCapsule = new AccountAssetIssueCapsule(ByteString.copyFrom(toAddress));
-        accountAssetIssueStore.put(toAddress, toAccountAssetIssueCapsule);
-      }
-
       ByteString assetName = transferAssetContract.getAssetName();
       long amount = transferAssetContract.getAmount();
 
       AccountCapsule ownerAccountCapsule = accountStore.get(ownerAddress);
-      AccountAssetIssueCapsule ownerAccountAssetIssueCapsule = accountAssetIssueStore.get(ownerAddress);
-
-      if (!ownerAccountAssetIssueCapsule
+      if (!ownerAccountCapsule
           .reduceAssetAmountV2(assetName.toByteArray(), amount, dynamicStore, assetIssueStore)) {
         throw new ContractExeException("reduceAssetAmount failed !");
       }
       accountStore.put(ownerAddress, ownerAccountCapsule);
-      accountAssetIssueStore.put(ownerAddress, ownerAccountAssetIssueCapsule);
 
-      toAccountAssetIssueCapsule
+      toAccountCapsule
           .addAssetAmountV2(assetName.toByteArray(), amount, dynamicStore, assetIssueStore);
       accountStore.put(toAddress, toAccountCapsule);
-      accountAssetIssueStore.put(toAddress, toAccountAssetIssueCapsule);
 
       Commons.adjustBalance(accountStore, ownerAccountCapsule, -fee);
       if (dynamicStore.supportBlackHoleOptimization()) {
@@ -127,7 +111,6 @@ public class TransferAssetActuator extends AbstractActuator {
       throw new ContractValidateException(ActuatorConstant.STORE_NOT_EXIST);
     }
     AccountStore accountStore = chainBaseManager.getAccountStore();
-    AccountAssetIssueStore accountAssetIssueStore = chainBaseManager.getAccountAssetIssueStore();
     DynamicPropertiesStore dynamicStore = chainBaseManager.getDynamicPropertiesStore();
     AssetIssueStore assetIssueStore = chainBaseManager.getAssetIssueStore();
     AssetIssueV2Store assetIssueV2Store = chainBaseManager.getAssetIssueV2Store();
@@ -174,22 +157,8 @@ public class TransferAssetActuator extends AbstractActuator {
         .has(assetName)) {
       throw new ContractValidateException("No asset!");
     }
-    AccountAssetIssueCapsule ownerAccountAssetIssueCapsule = accountAssetIssueStore.get(ownerAddress);
-    if (ownerAccountAssetIssueCapsule == null) {
-      throw new ContractValidateException("No owner account asset issue!");
-    }
 
-    Map<String, Long> asset;
-    if (dynamicStore.getAllowSameTokenName() == 0) {
-      asset = ownerAccountAssetIssueCapsule.getAssetMap();
-    } else {
-      asset = ownerAccountAssetIssueCapsule.getAssetMapV2();
-    }
-    if (asset.isEmpty()) {
-      throw new ContractValidateException("Owner has no asset!");
-    }
-
-    Long assetBalance = asset.get(ByteArray.toStr(assetName));
+    Long assetBalance = ownerAccount.getAsset(dynamicStore, ByteArray.toStr(assetName));
     if (null == assetBalance || assetBalance <= 0) {
       throw new ContractValidateException("assetBalance must be greater than 0.");
     }
@@ -198,20 +167,14 @@ public class TransferAssetActuator extends AbstractActuator {
     }
 
     AccountCapsule toAccount = accountStore.get(toAddress);
-    AccountAssetIssueCapsule toAccountAssetIssueCapsule = accountAssetIssueStore.get(toAddress);
-
-    if (toAccount != null && toAccountAssetIssueCapsule != null) {
+    if (toAccount != null) {
       //after ForbidTransferToContract proposal, send trx to smartContract by actuator is not allowed.
       if (dynamicStore.getForbidTransferToContract() == 1
           && toAccount.getType() == AccountType.Contract) {
         throw new ContractValidateException("Cannot transfer asset to smartContract.");
       }
 
-      if (dynamicStore.getAllowSameTokenName() == 0) {
-        assetBalance = toAccountAssetIssueCapsule.getAssetMap().get(ByteArray.toStr(assetName));
-      } else {
-        assetBalance = toAccountAssetIssueCapsule.getAssetMapV2().get(ByteArray.toStr(assetName));
-      }
+      assetBalance = toAccount.getAsset(dynamicStore, ByteArray.toStr(assetName));
       if (assetBalance != null) {
         try {
           assetBalance = Math.addExact(assetBalance, amount); //check if overflow

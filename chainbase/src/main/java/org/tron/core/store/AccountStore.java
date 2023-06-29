@@ -2,11 +2,6 @@ package org.tron.core.store;
 
 import com.google.protobuf.ByteString;
 import com.typesafe.config.ConfigObject;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.OptionalLong;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,11 +12,14 @@ import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.capsule.BlockCapsule;
 import org.tron.core.db.TronStoreWithRevoking;
 import org.tron.core.db.accountstate.AccountStateCallBackUtils;
-import org.tron.protos.contract.BalanceContract;
 import org.tron.protos.contract.BalanceContract.TransactionBalanceTrace;
 import org.tron.protos.contract.BalanceContract.TransactionBalanceTrace.Operation;
 
-@Slf4j(topic = "DB")
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalLong;
+
 @Component
 public class AccountStore extends TronStoreWithRevoking<AccountCapsule> {
 
@@ -35,6 +33,9 @@ public class AccountStore extends TronStoreWithRevoking<AccountCapsule> {
 
   @Autowired
   private AccountTraceStore accountTraceStore;
+
+  @Autowired
+  private DynamicPropertiesStore dynamicPropertiesStore;
 
   @Autowired
   private AccountStore(@Value("account") String dbName) {
@@ -77,7 +78,6 @@ public class AccountStore extends TronStoreWithRevoking<AccountCapsule> {
         }
       }
     }
-
     super.put(key, item);
     accountStateCallBackUtils.accountCallBack(key, item);
   }

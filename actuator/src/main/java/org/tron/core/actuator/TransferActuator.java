@@ -9,13 +9,13 @@ import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.tron.common.utils.Commons;
 import org.tron.common.utils.DecodeUtil;
-import org.tron.core.capsule.AccountAssetIssueCapsule;
+import org.tron.common.utils.StringUtil;
 import org.tron.core.capsule.AccountCapsule;
+import org.tron.core.capsule.ContractCapsule;
 import org.tron.core.capsule.TransactionResultCapsule;
 import org.tron.core.exception.BalanceInsufficientException;
 import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractValidateException;
-import org.tron.core.store.AccountAssetIssueStore;
 import org.tron.core.store.AccountStore;
 import org.tron.core.store.DynamicPropertiesStore;
 import org.tron.protos.Protocol.AccountType;
@@ -39,7 +39,6 @@ public class TransferActuator extends AbstractActuator {
 
     long fee = calcFee();
     AccountStore accountStore = chainBaseManager.getAccountStore();
-    AccountAssetIssueStore accountAssetIssueStore = chainBaseManager.getAccountAssetIssueStore();
     DynamicPropertiesStore dynamicStore = chainBaseManager.getDynamicPropertiesStore();
     try {
       TransferContract transferContract = any.unpack(TransferContract.class);
@@ -57,9 +56,6 @@ public class TransferActuator extends AbstractActuator {
         accountStore.put(toAddress, toAccount);
 
         fee = fee + dynamicStore.getCreateNewAccountFeeInSystemContract();
-      }
-      if (accountAssetIssueStore.get(toAddress) == null) {
-        accountAssetIssueStore.put(toAddress, new AccountAssetIssueCapsule(ByteString.copyFrom(toAddress)));
       }
 
       Commons.adjustBalance(accountStore, ownerAddress, -(Math.addExact(fee, amount)));
@@ -143,7 +139,26 @@ public class TransferActuator extends AbstractActuator {
 
       }
 
+      // after AllowTvmCompatibleEvm proposal, send trx to smartContract which version is one
+      // by actuator is not allowed.
+      if (dynamicStore.getAllowTvmCompatibleEvm() == 1
+          && toAccount != null
+          && toAccount.getType() == AccountType.Contract) {
+
+        ContractCapsule contractCapsule = chainBaseManager.getContractStore().get(toAddress);
+        if (contractCapsule == null) { //  this can not happen
+          throw new ContractValidateException(
+              "Account type is Contract, but it is not exist in contract store.");
+        } else if (contractCapsule.getContractVersion() == 1) {
+          throw new ContractValidateException(
+              "Cannot transfer TRX to a smartContract which version is one. "
+                  + "Instead please use TriggerSmartContract ");
+        }
+      }
+
       if (balance < Math.addExact(amount, fee)) {
+        logger.warn("Balance is not sufficient. Account: {}, balance: {}, amount: {}, fee: {}.",
+            StringUtil.encode58Check(ownerAddress), balance, amount, fee);
         throw new ContractValidateException(
             "Validate TransferContract error, balance is not sufficient.");
       }

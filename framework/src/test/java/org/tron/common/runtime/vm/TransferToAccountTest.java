@@ -3,10 +3,10 @@ package org.tron.common.runtime.vm;
 import com.google.protobuf.ByteString;
 import java.io.File;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Test;
-import org.spongycastle.util.encoders.Hex;
 import org.tron.common.application.Application;
 import org.tron.common.application.ApplicationFactory;
 import org.tron.common.application.TronApplicationContext;
@@ -14,7 +14,6 @@ import org.tron.common.crypto.ECKey;
 import org.tron.common.runtime.ProgramResult;
 import org.tron.common.runtime.Runtime;
 import org.tron.common.runtime.TvmTestUtils;
-import org.tron.common.storage.DepositImpl;
 import org.tron.common.utils.ByteArray;
 import org.tron.common.utils.FileUtil;
 import org.tron.common.utils.StringUtil;
@@ -23,7 +22,6 @@ import org.tron.core.ChainBaseManager;
 import org.tron.core.Constant;
 import org.tron.core.Wallet;
 import org.tron.core.actuator.VMActuator;
-import org.tron.core.capsule.AccountAssetIssueCapsule;
 import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.capsule.AssetIssueCapsule;
 import org.tron.core.capsule.BlockCapsule;
@@ -38,6 +36,7 @@ import org.tron.core.exception.ReceiptCheckErrException;
 import org.tron.core.exception.VMIllegalException;
 import org.tron.core.store.StoreFactory;
 import org.tron.core.vm.EnergyCost;
+import org.tron.core.vm.repository.RepositoryImpl;
 import org.tron.protos.Protocol.AccountType;
 import org.tron.protos.Protocol.Transaction;
 import org.tron.protos.contract.AssetIssueContractOuterClass.AssetIssueContract;
@@ -62,9 +61,8 @@ public class TransferToAccountTest {
   private static ChainBaseManager chainBaseManager;
   private static TronApplicationContext context;
   private static Application appT;
-  private static DepositImpl deposit;
+  private static RepositoryImpl repository;
   private static AccountCapsule ownerCapsule;
-  private static AccountAssetIssueCapsule ownerAccountAssetIssueCapsule;
 
   static {
     Args.setParam(new String[]{"--output-directory", dbPath, "--debug"}, Constant.TEST_CONF);
@@ -74,11 +72,10 @@ public class TransferToAccountTest {
     TRANSFER_TO = Wallet.getAddressPreFixString() + "548794500882809695a8a687866e76d4271a1abc";
     dbManager = context.getBean(Manager.class);
     chainBaseManager = context.getBean(ChainBaseManager.class);
-    deposit = DepositImpl.createRoot(dbManager);
-    deposit.createAccount(Hex.decode(TRANSFER_TO), AccountType.Normal);
-    deposit.createAccountAssetIssue(Hex.decode(TRANSFER_TO));
-    deposit.addBalance(Hex.decode(TRANSFER_TO), 10);
-    deposit.commit();
+    repository = RepositoryImpl.createRoot(StoreFactory.getInstance());
+    repository.createAccount(Hex.decode(TRANSFER_TO), AccountType.Normal);
+    repository.addBalance(Hex.decode(TRANSFER_TO), 10);
+    repository.commit();
     ownerCapsule =
         new AccountCapsule(
             ByteString.copyFrom(ByteArray.fromHexString(OWNER_ADDRESS)),
@@ -86,8 +83,6 @@ public class TransferToAccountTest {
             AccountType.AssetIssue);
 
     ownerCapsule.setBalance(1000_1000_1000L);
-    ownerAccountAssetIssueCapsule =
-      new AccountAssetIssueCapsule(ByteString.copyFrom(ByteArray.fromHexString(OWNER_ADDRESS)));
   }
 
   /**
@@ -129,12 +124,9 @@ public class TransferToAccountTest {
     AssetIssueCapsule assetIssueCapsule = new AssetIssueCapsule(assetIssueContract);
     chainBaseManager.getAssetIssueV2Store()
         .put(assetIssueCapsule.createDbV2Key(), assetIssueCapsule);
-    chainBaseManager.getAccountStore().put(ownerCapsule.getAddress().toByteArray(), ownerCapsule);
 
-    ownerAccountAssetIssueCapsule.addAssetV2(ByteArray.fromString(String.valueOf(id)), 100_000_000);
-    dbManager.getAccountAssetIssueStore()
-            .put(ownerAccountAssetIssueCapsule.getAddress().toByteArray(),
-                    ownerAccountAssetIssueCapsule);
+    ownerCapsule.addAssetV2(ByteArray.fromString(String.valueOf(id)), 100_000_000);
+    chainBaseManager.getAccountStore().put(ownerCapsule.getAddress().toByteArray(), ownerCapsule);
     return id;
   }
 
@@ -152,10 +144,10 @@ public class TransferToAccountTest {
     //  1. Test deploy with tokenValue and tokenId */
     long id = createAsset("testToken1");
     byte[] contractAddress = deployTransferContract(id);
-    deposit.commit();
+    repository.commit();
     Assert.assertEquals(100,
-        chainBaseManager.getAccountAssetIssueStore()
-            .get(contractAddress).getAssetMapV2().get(String.valueOf(id)).longValue());
+        chainBaseManager.getAccountStore()
+            .get(contractAddress).getAssetV2MapForTest().get(String.valueOf(id)).longValue());
     Assert.assertEquals(1000,
         chainBaseManager.getAccountStore().get(contractAddress).getBalance());
 
@@ -178,11 +170,11 @@ public class TransferToAccountTest {
 
     Assert.assertNull(runtime.getRuntimeError());
     Assert.assertEquals(9,
-        chainBaseManager.getAccountAssetIssueStore().get(Hex.decode(TRANSFER_TO)).getAssetMapV2()
+        chainBaseManager.getAccountStore().get(Hex.decode(TRANSFER_TO)).getAssetV2MapForTest()
             .get(String.valueOf(id)).longValue());
     Assert.assertEquals(100 + tokenValue - 9,
-        chainBaseManager.getAccountAssetIssueStore().get(contractAddress)
-            .getAssetMapV2().get(String.valueOf(id)).longValue());
+        chainBaseManager.getAccountStore().get(contractAddress)
+            .getAssetV2MapForTest().get(String.valueOf(id)).longValue());
     long energyCostWhenExist = runtime.getResult().getEnergyUsed();
 
     // 3.Test transferToken To Non-exist address
@@ -198,15 +190,15 @@ public class TransferToAccountTest {
 
     Assert.assertNull(runtime.getRuntimeError());
     Assert.assertEquals(100 + tokenValue * 2 - 18,
-        chainBaseManager.getAccountAssetIssueStore().get(contractAddress).getAssetMapV2()
+        chainBaseManager.getAccountStore().get(contractAddress).getAssetV2MapForTest()
             .get(String.valueOf(id)).longValue());
     Assert.assertEquals(9,
-        chainBaseManager.getAccountAssetIssueStore().get(ecKey.getAddress()).getAssetMapV2()
+        chainBaseManager.getAccountStore().get(ecKey.getAddress()).getAssetV2MapForTest()
             .get(String.valueOf(id)).longValue());
     long energyCostWhenNonExist = runtime.getResult().getEnergyUsed();
     //4.Test Energy
     Assert.assertEquals(energyCostWhenNonExist - energyCostWhenExist,
-        EnergyCost.getInstance().getNEW_ACCT_CALL());
+        EnergyCost.getNewAcctCall());
     //5. Test transfer Trx with exsit account
 
     selectorStr = "transferTo(address,uint256)";
@@ -241,7 +233,7 @@ public class TransferToAccountTest {
 
     //7.test energy
     Assert.assertEquals(energyCostWhenNonExist - energyCostWhenExist,
-        EnergyCost.getInstance().getNEW_ACCT_CALL());
+        EnergyCost.getNewAcctCall());
 
     //8.test transfer to itself
     selectorStr = "transferTo(address,uint256)";
@@ -329,7 +321,7 @@ public class TransferToAccountTest {
     byte[] contractAddress = TvmTestUtils
         .deployContractWholeProcessReturnContractAddress(contractName, address, ABI, code, value,
             feeLimit, consumeUserResourcePercent, null, tokenValue, tokenId,
-            deposit, null);
+            repository, null);
     return contractAddress;
   }
 }

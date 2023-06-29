@@ -1,76 +1,101 @@
-/*
- * Copyright (c) [2016] [ <ether.camp> ]
- * This file is part of the ethereumJ library.
- *
- * The ethereumJ library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * The ethereumJ library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with the ethereumJ library. If not, see <http://www.gnu.org/licenses/>.
- */
-
 package org.tron.core.vm.program;
 
+import static java.lang.StrictMath.min;
+import static java.lang.String.format;
+import static org.apache.commons.lang3.ArrayUtils.EMPTY_BYTE_ARRAY;
+import static org.apache.commons.lang3.ArrayUtils.getLength;
+import static org.apache.commons.lang3.ArrayUtils.isEmpty;
+import static org.apache.commons.lang3.ArrayUtils.isNotEmpty;
+import static org.apache.commons.lang3.ArrayUtils.nullToEmpty;
+import static org.tron.common.utils.ByteUtil.stripLeadingZeroes;
+import static org.tron.core.config.Parameter.ChainConstant.TRX_PRECISION;
+
 import com.google.protobuf.ByteString;
+import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.map.LRUMap;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.tuple.Pair;
-import org.spongycastle.util.encoders.Hex;
+import org.bouncycastle.util.encoders.Hex;
 import org.tron.common.crypto.Hash;
 import org.tron.common.parameter.CommonParameter;
 import org.tron.common.runtime.InternalTransaction;
 import org.tron.common.runtime.ProgramResult;
 import org.tron.common.runtime.vm.DataWord;
-import org.tron.common.utils.*;
-import org.tron.core.capsule.*;
-import org.tron.core.config.Parameter;
-import org.tron.core.db.TransactionTrace;
+import org.tron.common.utils.BIUtil;
+import org.tron.common.utils.ByteUtil;
+import org.tron.common.utils.FastByteComparisons;
+import org.tron.common.utils.Utils;
+import org.tron.common.utils.WalletUtil;
+import org.tron.core.ChainBaseManager;
+import org.tron.core.Constant;
+import org.tron.core.capsule.AccountCapsule;
+import org.tron.core.capsule.BlockCapsule;
+import org.tron.core.capsule.ContractCapsule;
+import org.tron.core.capsule.ContractStateCapsule;
+import org.tron.core.capsule.DelegatedResourceCapsule;
+import org.tron.core.capsule.VotesCapsule;
+import org.tron.core.capsule.WitnessCapsule;
+import org.tron.core.db.BandwidthProcessor;
+import org.tron.core.db.EnergyProcessor;
 import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractValidateException;
 import org.tron.core.exception.TronException;
-import org.tron.core.store.DynamicPropertiesStore;
 import org.tron.core.utils.TransactionUtil;
-import org.tron.core.vm.*;
+import org.tron.core.vm.EnergyCost;
+import org.tron.core.vm.MessageCall;
+import org.tron.core.vm.Op;
+import org.tron.core.vm.OperationRegistry;
+import org.tron.core.vm.PrecompiledContracts;
+import org.tron.core.vm.VM;
+import org.tron.core.vm.VMConstant;
+import org.tron.core.vm.VMUtils;
 import org.tron.core.vm.config.VMConfig;
-import org.tron.core.vm.nativecontract.*;
-import org.tron.core.vm.nativecontract.param.*;
+import org.tron.core.vm.nativecontract.CancelAllUnfreezeV2Processor;
+import org.tron.core.vm.nativecontract.DelegateResourceProcessor;
+import org.tron.core.vm.nativecontract.FreezeBalanceProcessor;
+import org.tron.core.vm.nativecontract.FreezeBalanceV2Processor;
+import org.tron.core.vm.nativecontract.UnDelegateResourceProcessor;
+import org.tron.core.vm.nativecontract.UnfreezeBalanceProcessor;
+import org.tron.core.vm.nativecontract.UnfreezeBalanceV2Processor;
+import org.tron.core.vm.nativecontract.VoteWitnessProcessor;
+import org.tron.core.vm.nativecontract.WithdrawExpireUnfreezeProcessor;
+import org.tron.core.vm.nativecontract.WithdrawRewardProcessor;
+import org.tron.core.vm.nativecontract.param.CancelAllUnfreezeV2Param;
+import org.tron.core.vm.nativecontract.param.DelegateResourceParam;
+import org.tron.core.vm.nativecontract.param.FreezeBalanceParam;
+import org.tron.core.vm.nativecontract.param.FreezeBalanceV2Param;
+import org.tron.core.vm.nativecontract.param.UnDelegateResourceParam;
+import org.tron.core.vm.nativecontract.param.UnfreezeBalanceParam;
+import org.tron.core.vm.nativecontract.param.UnfreezeBalanceV2Param;
+import org.tron.core.vm.nativecontract.param.VoteWitnessParam;
+import org.tron.core.vm.nativecontract.param.WithdrawExpireUnfreezeParam;
+import org.tron.core.vm.nativecontract.param.WithdrawRewardParam;
 import org.tron.core.vm.program.invoke.ProgramInvoke;
 import org.tron.core.vm.program.invoke.ProgramInvokeFactory;
-import org.tron.core.vm.program.invoke.ProgramInvokeFactoryImpl;
 import org.tron.core.vm.program.listener.CompositeProgramListener;
 import org.tron.core.vm.program.listener.ProgramListenerAware;
 import org.tron.core.vm.program.listener.ProgramStorageChangeListener;
+import org.tron.core.vm.repository.Key;
 import org.tron.core.vm.repository.Repository;
 import org.tron.core.vm.trace.ProgramTrace;
 import org.tron.core.vm.trace.ProgramTraceListener;
 import org.tron.core.vm.utils.MUtil;
+import org.tron.core.vm.utils.VoteRewardUtil;
 import org.tron.protos.Protocol;
 import org.tron.protos.Protocol.AccountType;
+import org.tron.protos.contract.Common;
 import org.tron.protos.contract.SmartContractOuterClass.SmartContract;
 import org.tron.protos.contract.SmartContractOuterClass.SmartContract.Builder;
-
-import java.io.ByteArrayOutputStream;
-import java.math.BigInteger;
-import java.util.*;
-import java.util.stream.Collectors;
-
-import static java.lang.StrictMath.min;
-import static java.lang.String.format;
-import static org.apache.commons.lang3.ArrayUtils.*;
-import static org.tron.common.utils.ByteUtil.stripLeadingZeroes;
-import static org.tron.core.config.Parameter.ChainConstant.FROZEN_PERIOD;
-
-/**
- * @author Roman Mandeleil
- * @since 01.06.2014
- */
 
 @Slf4j(topic = "VM")
 public class Program {
@@ -83,12 +108,13 @@ public class Program {
   private static final String INVALID_TOKEN_ID_MSG = "not valid token id";
   private static final String REFUND_ENERGY_FROM_MESSAGE_CALL = "refund energy from message call";
   private static final String CALL_PRE_COMPILED = "call pre-compiled";
-  private final VMConfig config;
+  private static final int lruCacheSize = CommonParameter.getInstance().getSafeLruCacheSize();
+  private static final LRUMap<Key, ProgramPrecompile> programPrecompileLRUMap
+      = new LRUMap<>(lruCacheSize);
   private long nonce;
   private byte[] rootTransactionId;
   private InternalTransaction internalTransaction;
   private ProgramInvoke invoke;
-  private ProgramInvokeFactory programInvokeFactory = new ProgramInvokeFactoryImpl();
   private ProgramOutListener listener;
   private ProgramTraceListener traceListener;
   private ProgramStorageChangeListener storageDiffListener = new ProgramStorageChangeListener();
@@ -100,32 +126,33 @@ public class Program {
   private ProgramResult result = new ProgramResult();
   private ProgramTrace trace = new ProgramTrace();
   private byte[] ops;
+  private byte[] codeAddress;
   private int pc;
   private byte lastOp;
   private byte previouslyExecutedOp;
   private boolean stopped;
   private ProgramPrecompile programPrecompile;
+  private int contractVersion;
+  private DataWord adjustedCallEnergy;
+  @Getter
+  @Setter
+  private long contextContractFactor;
+  @Getter
+  @Setter
+  private long callPenaltyEnergy;
 
-  public Program(byte[] ops, ProgramInvoke programInvoke) {
-    this(ops, programInvoke, null);
-  }
-
-  public Program(byte[] ops, ProgramInvoke programInvoke, InternalTransaction internalTransaction) {
-    this(ops, programInvoke, internalTransaction, VMConfig.getInstance());
-  }
-
-  public Program(byte[] ops, ProgramInvoke programInvoke, InternalTransaction internalTransaction,
-      VMConfig config) {
-    this.config = config;
+  public Program(byte[] ops, byte[] codeAddress, ProgramInvoke programInvoke,
+                 InternalTransaction internalTransaction) {
     this.invoke = programInvoke;
     this.internalTransaction = internalTransaction;
     this.ops = nullToEmpty(ops);
+    this.codeAddress = codeAddress;
 
-    traceListener = new ProgramTraceListener(config.vmTrace());
+    traceListener = new ProgramTraceListener(VMConfig.vmTrace());
     this.memory = setupProgramListener(new Memory());
     this.stack = setupProgramListener(new Stack());
     this.contractState = setupProgramListener(new ContractState(programInvoke));
-    this.trace = new ProgramTrace(config, programInvoke);
+    this.trace = new ProgramTrace(programInvoke);
     this.nonce = internalTransaction.getNonce();
   }
 
@@ -138,141 +165,28 @@ public class Program {
     return ret.toString();
   }
 
-  public static String stringifyMultiline(byte[] code) {
-    int index = 0;
-    StringBuilder sb = new StringBuilder();
-    BitSet mask = buildReachableBytecodesMask(code);
-    ByteArrayOutputStream binData = new ByteArrayOutputStream();
-    int binDataStartPC = -1;
-
-    while (index < code.length) {
-      final byte opCode = code[index];
-      OpCode op = OpCode.code(opCode);
-
-      if (!mask.get(index)) {
-        if (binDataStartPC == -1) {
-          binDataStartPC = index;
-        }
-        binData.write(code[index]);
-        index++;
-        if (index < code.length) {
-          continue;
-        }
-      }
-
-      if (binDataStartPC != -1) {
-        sb.append(formatBinData(binData.toByteArray(), binDataStartPC));
-        binDataStartPC = -1;
-        binData = new ByteArrayOutputStream();
-        if (index == code.length) {
-          continue;
-        }
-      }
-
-      sb.append(Utils.align("" + Integer.toHexString(index) + ":", ' ', 8, false));
-
-      if (op == null) {
-        sb.append("<UNKNOWN>: ").append(0xFF & opCode).append("\n");
-        index++;
-        continue;
-      }
-
-      if (op.name().startsWith("PUSH")) {
-        sb.append(' ').append(op.name()).append(' ');
-
-        int nPush = op.val() - OpCode.PUSH1.val() + 1;
-        byte[] data = Arrays.copyOfRange(code, index + 1, index + nPush + 1);
-        BigInteger bi = new BigInteger(1, data);
-        sb.append("0x").append(bi.toString(16));
-        if (bi.bitLength() <= 32) {
-          sb.append(" (").append(new BigInteger(1, data).toString()).append(") ");
-        }
-
-        index += nPush + 1;
-      } else {
-        sb.append(' ').append(op.name());
-        index++;
-      }
-      sb.append('\n');
-    }
-
-    return sb.toString();
-  }
-
-  static BitSet buildReachableBytecodesMask(byte[] code) {
-    NavigableSet<Integer> gotos = new TreeSet<>();
-    ByteCodeIterator it = new ByteCodeIterator(code);
-    BitSet ret = new BitSet(code.length);
-    int lastPush = 0;
-    int lastPushPC = 0;
-    do {
-      ret.set(it.getPC()); // reachable bytecode
-      if (it.isPush()) {
-        lastPush = new BigInteger(1, it.getCurOpcodeArg()).intValue();
-        lastPushPC = it.getPC();
-      }
-      if (it.getCurOpcode() == OpCode.JUMP || it.getCurOpcode() == OpCode.JUMPI) {
-        if (it.getPC() != lastPushPC + 1) {
-          // some PC arithmetic we totally can't deal with
-          // assuming all bytecodes are reachable as a fallback
-          ret.set(0, code.length);
-          return ret;
-        }
-        int jumpPC = lastPush;
-        if (!ret.get(jumpPC)) {
-          // code was not explored yet
-          gotos.add(jumpPC);
-        }
-      }
-      if (it.getCurOpcode() == OpCode.JUMP || it.getCurOpcode() == OpCode.RETURN
-          || it.getCurOpcode() == OpCode.STOP) {
-        if (gotos.isEmpty()) {
-          break;
-        }
-        it.setPC(gotos.pollFirst());
-      }
-    } while (it.next());
-    return ret;
-  }
-
-  public static String stringify(byte[] code) {
-    int index = 0;
-    StringBuilder sb = new StringBuilder();
-
-    while (index < code.length) {
-      final byte opCode = code[index];
-      OpCode op = OpCode.code(opCode);
-
-      if (op == null) {
-        sb.append(" <UNKNOWN>: ").append(0xFF & opCode).append(" ");
-        index++;
-        continue;
-      }
-
-      if (op.name().startsWith("PUSH")) {
-        sb.append(' ').append(op.name()).append(' ');
-
-        int nPush = op.val() - OpCode.PUSH1.val() + 1;
-        byte[] data = Arrays.copyOfRange(code, index + 1, index + nPush + 1);
-        BigInteger bi = new BigInteger(1, data);
-        sb.append("0x").append(bi.toString(16)).append(" ");
-
-        index += nPush + 1;
-      } else {
-        sb.append(' ').append(op.name());
-        index++;
-      }
-    }
-
-    return sb.toString();
-  }
-
   public byte[] getRootTransactionId() {
     return rootTransactionId.clone();
   }
 
   public void setRootTransactionId(byte[] rootTransactionId) {
     this.rootTransactionId = rootTransactionId.clone();
+  }
+
+  public void setContractVersion(int version) {
+    this.contractVersion = version;
+  }
+
+  public int getContractVersion() {
+    return this.contractVersion;
+  }
+
+  public void setAdjustedCallEnergy(DataWord adjustedCallEnergy) {
+    this.adjustedCallEnergy = adjustedCallEnergy;
+  }
+
+  public DataWord getAdjustedCallEnergy() {
+    return this.adjustedCallEnergy;
   }
 
   public long getNonce() {
@@ -284,8 +198,20 @@ public class Program {
   }
 
   public ProgramPrecompile getProgramPrecompile() {
+    if (isConstantCall()) {
+      if (programPrecompile == null) {
+        programPrecompile = ProgramPrecompile.compile(ops);
+      }
+      return programPrecompile;
+    }
     if (programPrecompile == null) {
-      programPrecompile = ProgramPrecompile.compile(ops);
+      Key key = getJumpDestAnalysisCacheKey();
+      if (programPrecompileLRUMap.containsKey(key)) {
+        programPrecompile = programPrecompileLRUMap.get(key);
+      } else {
+        programPrecompile = ProgramPrecompile.compile(ops);
+        programPrecompileLRUMap.put(key, programPrecompile);
+      }
     }
     return programPrecompile;
   }
@@ -335,6 +261,10 @@ public class Program {
     return isEmpty(ops) ? 0 : ops[pc];
   }
 
+  public int getCurrentOpIntValue() {
+    return getCurrentOp() & 0xff;
+  }
+
   /**
    * Last Op can only be set publicly (no getLastOp method), is used for logging.
    */
@@ -366,12 +296,11 @@ public class Program {
   }
 
   public void stackPushZero() {
-    stackPush(new DataWord(0));
+    stackPush(DataWord.ZERO());
   }
 
   public void stackPushOne() {
-    DataWord stackWord = new DataWord(1);
-    stackPush(stackWord);
+    stackPush(DataWord.ONE());
   }
 
   public Stack getStack() {
@@ -505,11 +434,11 @@ public class Program {
 
   public void suicide(DataWord obtainerAddress) {
 
-    byte[] owner = TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes());
-    byte[] obtainer = TransactionTrace.convertToTronAddress(obtainerAddress.getLast20Bytes());
+    byte[] owner = getContextAddress();
+    byte[] obtainer = obtainerAddress.toTronAddress();
 
-    if (VMConfig.allowTvmStake()) {
-      withdrawRewardToBalance(owner, getContractState());
+    if (VMConfig.allowTvmVote()) {
+      withdrawRewardAndCancelVote(owner, getContractState());
     }
 
     long balance = getContractState().getBalance(owner);
@@ -522,8 +451,8 @@ public class Program {
 
     increaseNonce();
 
-    addInternalTx(null, owner, obtainer, balance, null, "suicide", nonce,
-        getContractState().getAccountAssetIssue(owner).getAssetMapV2());
+    InternalTransaction internalTx = addInternalTx(null, owner, obtainer, balance, null,
+        "suicide", nonce, getContractState().getAccount(owner).getAssetMapV2());
 
     if (FastByteComparisons.compareTo(owner, 0, 20, obtainer, 0, 20) == 0) {
       // if owner == obtainer just zeroing account according to Yellow Paper
@@ -548,10 +477,23 @@ public class Program {
         throw new BytecodeExecutionException("transfer failure");
       }
     }
-    if (VMConfig.allowTvmStake()) {
-      suicideFreezeBalanceAndVote(owner, obtainer, getContractState());
-      //delete delegationStore
-      getResult().addDeleteDelegation(this.getContractAddress());
+    if (VMConfig.allowTvmFreeze()) {
+      byte[] blackHoleAddress = getContractState().getBlackHoleAddress();
+      if (FastByteComparisons.isEqual(owner, obtainer)) {
+        transferDelegatedResourceToInheritor(owner, blackHoleAddress, getContractState());
+      } else {
+        transferDelegatedResourceToInheritor(owner, obtainer, getContractState());
+      }
+    }
+    if (VMConfig.allowTvmFreezeV2()) {
+      byte[] Inheritor =
+          FastByteComparisons.isEqual(owner, obtainer)
+              ? getContractState().getBlackHoleAddress()
+              : obtainer;
+      long expireUnfrozenBalance = transferFrozenV2BalanceToInheritor(owner, Inheritor, getContractState());
+      if (expireUnfrozenBalance > 0 && internalTx != null) {
+        internalTx.setValue(internalTx.getValue() + expireUnfrozenBalance);
+      }
     }
     getResult().addDeleteAccount(this.getContractAddress());
   }
@@ -560,119 +502,183 @@ public class Program {
     return this.contractState;
   }
 
-  private void withdrawRewardToBalance(byte[] owner, Repository repository) {
-    ContractService contractService = ContractService.getInstance();
-    contractService.withdrawReward(owner, getContractState());
-    AccountCapsule accountCapsule = repository.getAccount(owner);
-    long oldBalance = accountCapsule.getBalance();
-    long allowance = accountCapsule.getAllowance();
-    accountCapsule.setInstance(accountCapsule.getInstance().toBuilder()
-            .setBalance(oldBalance + allowance)
-            .setAllowance(0L)
-            .setLatestWithdrawTime(getTimestamp().longValue() * 1000)
-            .build());
-    // todo internal tx
-    repository.putAccountValue(accountCapsule.createDbKey(), accountCapsule);
-    if (logger.isDebugEnabled()) {
-      logger.debug("Transfer withdraw allowance to balance {}", allowance);
+  private void transferDelegatedResourceToInheritor(byte[] ownerAddr, byte[] inheritorAddr, Repository repo) {
+
+    // delegated resource from sender to owner, just abandon
+    // in order to making that sender can unfreeze their balance in future
+    // nothing will be deleted
+
+    // delegated resource from owner to receiver
+    // there cannot be any resource when suicide
+
+    AccountCapsule ownerCapsule = repo.getAccount(ownerAddr);
+
+    // transfer owner`s frozen balance for bandwidth to inheritor
+    long frozenBalanceForBandwidthOfOwner = 0;
+    // check if frozen for bandwidth exists
+    if (ownerCapsule.getFrozenCount() != 0) {
+      frozenBalanceForBandwidthOfOwner = ownerCapsule.getFrozenList().get(0).getFrozenBalance();
+    }
+    repo.addTotalNetWeight(-frozenBalanceForBandwidthOfOwner / TRX_PRECISION);
+
+    long frozenBalanceForEnergyOfOwner =
+        ownerCapsule.getAccountResource().getFrozenBalanceForEnergy().getFrozenBalance();
+    repo.addTotalEnergyWeight(-frozenBalanceForEnergyOfOwner / TRX_PRECISION);
+
+    // transfer all kinds of frozen balance to BlackHole
+    repo.addBalance(inheritorAddr, frozenBalanceForBandwidthOfOwner + frozenBalanceForEnergyOfOwner);
+  }
+
+  private long transferFrozenV2BalanceToInheritor(byte[] ownerAddr, byte[] inheritorAddr, Repository repo) {
+    AccountCapsule ownerCapsule = repo.getAccount(ownerAddr);
+    AccountCapsule inheritorCapsule = repo.getAccount(inheritorAddr);
+    long now = repo.getHeadSlot();
+
+    // transfer frozen resource
+    ownerCapsule.getFrozenV2List().stream()
+        .filter(freezeV2 -> freezeV2.getAmount() > 0)
+        .forEach(
+            freezeV2 -> {
+              switch (freezeV2.getType()) {
+                case BANDWIDTH:
+                  inheritorCapsule.addFrozenBalanceForBandwidthV2(freezeV2.getAmount());
+                  break;
+                case ENERGY:
+                  inheritorCapsule.addFrozenBalanceForEnergyV2(freezeV2.getAmount());
+                  break;
+                case TRON_POWER:
+                  inheritorCapsule.addFrozenForTronPowerV2(freezeV2.getAmount());
+                  break;
+              }
+            });
+
+    // merge usage
+    BandwidthProcessor bandwidthProcessor = new BandwidthProcessor(ChainBaseManager.getInstance());
+    bandwidthProcessor.updateUsageForDelegated(ownerCapsule);
+    ownerCapsule.setLatestConsumeTime(now);
+    if (ownerCapsule.getNetUsage() > 0) {
+      long newNetUsage =
+          bandwidthProcessor.unDelegateIncrease(
+              inheritorCapsule,
+              ownerCapsule,
+              ownerCapsule.getNetUsage(),
+              Common.ResourceCode.BANDWIDTH,
+              now);
+      inheritorCapsule.setNetUsage(newNetUsage);
+      inheritorCapsule.setLatestConsumeTime(now);
+    }
+
+    EnergyProcessor energyProcessor =
+        new EnergyProcessor(
+            repo.getDynamicPropertiesStore(), ChainBaseManager.getInstance().getAccountStore());
+    energyProcessor.updateUsage(ownerCapsule);
+    ownerCapsule.setLatestConsumeTimeForEnergy(now);
+    if (ownerCapsule.getEnergyUsage() > 0) {
+      long newEnergyUsage =
+          energyProcessor.unDelegateIncrease(
+              inheritorCapsule,
+              ownerCapsule,
+              ownerCapsule.getEnergyUsage(),
+              Common.ResourceCode.ENERGY,
+              now);
+      inheritorCapsule.setEnergyUsage(newEnergyUsage);
+      inheritorCapsule.setLatestConsumeTimeForEnergy(now);
+    }
+
+    // withdraw expire unfrozen balance
+    long nowTimestamp = repo.getDynamicPropertiesStore().getLatestBlockHeaderTimestamp();
+    long expireUnfrozenBalance =
+        ownerCapsule.getUnfrozenV2List().stream()
+            .filter(
+                unFreezeV2 ->
+                    unFreezeV2.getUnfreezeAmount() > 0 && unFreezeV2.getUnfreezeExpireTime() <= nowTimestamp)
+            .mapToLong(Protocol.Account.UnFreezeV2::getUnfreezeAmount)
+            .sum();
+    if (expireUnfrozenBalance > 0) {
+      inheritorCapsule.setBalance(inheritorCapsule.getBalance() + expireUnfrozenBalance);
+      increaseNonce();
+      addInternalTx(null, ownerAddr, inheritorAddr, expireUnfrozenBalance, null,
+          "withdrawExpireUnfreezeWhileSuiciding", nonce, null);
+    }
+    clearOwnerFreezeV2(ownerCapsule);
+    repo.updateAccount(ownerCapsule.createDbKey(), ownerCapsule);
+    repo.updateAccount(inheritorCapsule.createDbKey(), inheritorCapsule);
+    return expireUnfrozenBalance;
+  }
+
+  private void clearOwnerFreezeV2(AccountCapsule ownerCapsule) {
+    ownerCapsule.clearFrozenV2();
+    ownerCapsule.setNetUsage(0);
+    ownerCapsule.setNewWindowSize(Common.ResourceCode.BANDWIDTH, 0);
+    ownerCapsule.setEnergyUsage(0);
+    ownerCapsule.setNewWindowSize(Common.ResourceCode.ENERGY, 0);
+    ownerCapsule.clearUnfrozenV2();
+  }
+
+  private void withdrawRewardAndCancelVote(byte[] owner, Repository repo) {
+    VoteRewardUtil.withdrawReward(owner, repo);
+
+    AccountCapsule ownerCapsule = repo.getAccount(owner);
+    if (!ownerCapsule.getVotesList().isEmpty()) {
+      VotesCapsule votesCapsule = repo.getVotes(owner);
+      if (votesCapsule == null) {
+        votesCapsule = new VotesCapsule(ByteString.copyFrom(owner),
+            ownerCapsule.getVotesList());
+      } else {
+        votesCapsule.clearNewVotes();
+      }
+      ownerCapsule.clearVotes();
+      ownerCapsule.setOldTronPower(0);
+      repo.updateVotes(owner, votesCapsule);
+    }
+    try {
+      long balance = ownerCapsule.getBalance();
+      long allowance = ownerCapsule.getAllowance();
+      ownerCapsule.setInstance(ownerCapsule.getInstance().toBuilder()
+          .setBalance(Math.addExact(balance, allowance))
+          .setAllowance(0)
+          .setLatestWithdrawTime(getTimestamp().longValue() * 1000)
+          .build());
+      repo.updateAccount(ownerCapsule.createDbKey(), ownerCapsule);
+    } catch (ArithmeticException e) {
+      throw new BytecodeExecutionException("Suicide: balance and allowance out of long range.");
     }
   }
 
-  private void suicideFreezeBalanceAndVote(byte[] owner, byte[] obtainer, Repository repository) {
-    AccountCapsule ownerCapsule = repository.getAccount(owner);
-    if (ownerCapsule.getFrozenCount() == 0) {
-      return;
-    }
+  public boolean canSuicide() {
+    byte[] owner = getContextAddress();
+    AccountCapsule accountCapsule = getContractState().getAccount(owner);
 
-    //process owner frozen for self
-    if (FastByteComparisons.compareTo(obtainer, 0, 20,
-            TransactionTrace.convertToTronAddress(new byte[20]), 0, 20) == 0
-            || FastByteComparisons.compareTo(owner, 0, 20, obtainer, 0, 20) == 0
-            || FastByteComparisons.compareTo(obtainer, 0, 20,
-            repository.getBlackHoleAddress(), 0, 20) == 0) {
-      // if obtainer equal zero or black hole or owner
-      byte[] realObtain = obtainer;
-      if(FastByteComparisons.compareTo(owner, 0, 20, obtainer, 0, 20) == 0) {
-        realObtain = repository.getBlackHoleAddress();
-      }
-      long unfreezeBalance = ownerCapsule.getFrozenList().get(0).getFrozenBalance();
-      AccountCapsule realObtainCapsule = repository.getAccount(realObtain);
-      realObtainCapsule.setBalance(realObtainCapsule.getBalance() + unfreezeBalance);
-      ownerCapsule.setInstance(ownerCapsule.getInstance().toBuilder()
-              .removeFrozen(0).build());
-      repository.updateAccount(realObtain, realObtainCapsule);
-      repository
-              .addTotalNetWeight(-unfreezeBalance / Parameter.ChainConstant.TRX_PRECISION);
-    } else {
-      AccountCapsule obtainCapsule = repository.getAccount(obtainer);
-      long now = getTimestamp().longValue() * 1000;
-      long ownerBandwidthBalance = ownerCapsule.getFrozenList().get(0).getFrozenBalance();
-      long ownerBandwidthExpire = ownerCapsule.getFrozenList().get(0).getExpireTime();
-      long newBandwidthExpire = ownerBandwidthExpire;
-      long newFrozenBalanceForBandwidth = ownerBandwidthBalance;
-      if (obtainCapsule.getFrozenCount() > 0) {
-        long obtainBandwidthBalance = obtainCapsule.getFrozenList().get(0).getFrozenBalance();
-        long obtainBandwidthExpire = obtainCapsule.getFrozenList().get(0).getExpireTime();
-        long maxExpire = repository.getDynamicPropertiesStore().getMinFrozenTime() * Parameter.ChainConstant.FROZEN_PERIOD;
-        newBandwidthExpire = now
-                + BigInteger.valueOf(Long.max(0, Long.min(ownerBandwidthExpire - now, maxExpire)))
-                .multiply(BigInteger.valueOf(ownerBandwidthBalance))
-                .add(BigInteger.valueOf(Long.max(0, Long.min(obtainBandwidthExpire - now, maxExpire)))
-                        .multiply(BigInteger.valueOf(obtainBandwidthBalance)))
-                .divide(BigInteger.valueOf(
-                        Math.addExact(ownerBandwidthBalance, obtainBandwidthBalance)))
-                .longValue();
-        newFrozenBalanceForBandwidth = Math.addExact(ownerBandwidthBalance, obtainBandwidthBalance);
-      }
-      obtainCapsule.setFrozenForBandwidth(newFrozenBalanceForBandwidth, newBandwidthExpire);
-      repository.updateAccount(obtainer, obtainCapsule);
-      ownerCapsule.setInstance(ownerCapsule.getInstance().toBuilder()
-              .removeFrozen(0).build());
-    }
-    //vote
-    {
-      VotesCapsule ownerVotesCapsule = repository.getVotesCapsule(owner);
+    boolean freezeCheck = !VMConfig.allowTvmFreeze()
+        || (accountCapsule.getDelegatedFrozenBalanceForBandwidth() == 0
+        && accountCapsule.getDelegatedFrozenBalanceForEnergy() == 0);
 
-      //get owner oldVotes
-      List<Protocol.Vote> oldVotes;
-      if (ownerVotesCapsule == null) {
-        oldVotes = ownerCapsule.getVotesList();
-      } else {
-        oldVotes = ownerVotesCapsule.getOldVotes();
-        //delete ownerVotesCapsule
-        getResult().addDeleteVotes(this.getContractAddress());
-      }
-      // merge oldVotes to address(zero)
-      if (!oldVotes.isEmpty()) {
-        ownerCapsule.clearVotes();
-        //merge oldVotes to zero
-        byte[] zeroAddress = TransactionTrace.convertToTronAddress(new byte[20]);
-        VotesCapsule zeroVotesCapsule = repository.getVotesCapsule(zeroAddress);
-        if (zeroVotesCapsule == null) {
-          zeroVotesCapsule = new VotesCapsule(ByteString.copyFrom(zeroAddress), oldVotes);
-        } else {
-          int zeroOldVoteSize = zeroVotesCapsule.getOldVotes().size();
-          Map<ByteString, Integer> zeroOldVotesIndex = new HashMap<>(zeroOldVoteSize);
-          for(int i = 0; i < zeroOldVoteSize; i++){
-            zeroOldVotesIndex.put(zeroVotesCapsule.getOldVotes().get(i).getVoteAddress(), i);
-          }
-          for (Protocol.Vote vote : oldVotes) {
-            if (zeroOldVotesIndex.containsKey(vote.getVoteAddress())) {
-              int index = zeroOldVotesIndex.get(vote.getVoteAddress());
-              long newOldVoteCount = vote.getVoteCount() + zeroVotesCapsule.getOldVotes().get(index).getVoteCount();
-              zeroVotesCapsule.setOldVote(index, Protocol.Vote.newBuilder()
-                      .setVoteAddress(vote.getVoteAddress())
-                      .setVoteCount(newOldVoteCount).build());
-            } else {
-              zeroVotesCapsule.addOldVotes(vote.getVoteAddress(), vote.getVoteCount());
-            }
-          }
-        }
-        repository.updateVotesCapsule(zeroAddress, zeroVotesCapsule);
-      }
-    }
+    boolean freezeV2Check = freezeV2Check(accountCapsule);
+    return freezeCheck && freezeV2Check;
+//    boolean voteCheck = !VMConfig.allowTvmVote()
+//        || (accountCapsule.getVotesList().size() == 0
+//        && VoteRewardUtil.queryReward(owner, getContractState()) == 0
+//        && getContractState().getAccountVote(
+//            getContractState().getBeginCycle(owner), owner) == null);
+//    return freezeCheck && voteCheck;
+  }
 
-    repository.updateAccount(owner, ownerCapsule);
+  private boolean freezeV2Check(AccountCapsule accountCapsule) {
+    if (!VMConfig.allowTvmFreezeV2()) {
+      return true;
+    }
+    long now = getContractState().getDynamicPropertiesStore().getLatestBlockHeaderTimestamp();
+
+    boolean isDelegatedResourceEmpty =
+        accountCapsule.getDelegatedFrozenV2BalanceForBandwidth() == 0
+            && accountCapsule.getDelegatedFrozenV2BalanceForEnergy() == 0;
+    boolean isUnFrozenV2ListEmpty =
+        CollectionUtils.isEmpty(
+            accountCapsule.getUnfrozenV2List().stream()
+                .filter(unFreezeV2 -> unFreezeV2.getUnfreezeExpireTime() > now)
+                .collect(Collectors.toList()));
+
+    return isDelegatedResourceEmpty && isUnFrozenV2ListEmpty;
   }
 
   @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
@@ -694,8 +700,7 @@ public class Program {
 
   private void createContractImpl(DataWord value, byte[] programCode, byte[] newAddress,
       boolean isCreate2) {
-    byte[] senderAddress = TransactionTrace
-        .convertToTronAddress(this.getContractAddress().getLast20Bytes());
+    byte[] senderAddress = getContextAddress();
 
     if (logger.isDebugEnabled()) {
       logger.debug("creating a new contract inside contract run: [{}]",
@@ -726,15 +731,11 @@ public class Program {
         deposit.updateAccount(newAddress, existingAccount);
       }
 
-      AccountAssetIssueCapsule accountAssetIssue = getContractState().getAccountAssetIssue(newAddress);
-      if (accountAssetIssue == null) {
-        deposit.createAccountAssetIssue(newAddress);
-      } else {
-        deposit.updateAccountAssetIssue(newAddress, accountAssetIssue);
-      }
-
       if (!contractAlreadyExists) {
         Builder builder = SmartContract.newBuilder();
+        if (VMConfig.allowTvmCompatibleEvm()) {
+          builder.setVersion(getContractVersion());
+        }
         builder.setContractAddress(ByteString.copyFrom(newAddress))
             .setConsumeUserResourcePercent(100)
             .setOriginAddress(ByteString.copyFrom(senderAddress));
@@ -747,8 +748,12 @@ public class Program {
     } else {
       deposit.createAccount(newAddress, "CreatedByContract",
           Protocol.AccountType.Contract);
-      SmartContract newSmartContract = SmartContract.newBuilder()
-          .setContractAddress(ByteString.copyFrom(newAddress)).setConsumeUserResourcePercent(100)
+      Builder builder = SmartContract.newBuilder();
+      if (VMConfig.allowTvmCompatibleEvm()) {
+        builder.setVersion(getContractVersion());
+      }
+      SmartContract newSmartContract = builder.setContractAddress(ByteString.copyFrom(newAddress))
+          .setConsumeUserResourcePercent(100)
           .setOriginAddress(ByteString.copyFrom(senderAddress)).build();
       deposit.createContract(newAddress, new ContractCapsule(newSmartContract));
       // In case of hashing collisions, check for any balance before createAccount()
@@ -778,9 +783,9 @@ public class Program {
     InternalTransaction internalTx = addInternalTx(null, senderAddress, newAddress, endowment,
         programCode, "create", nonce, null);
     long vmStartInUs = System.nanoTime() / 1000;
-    ProgramInvoke programInvoke = programInvokeFactory.createProgramInvoke(
-        this, new DataWord(newAddress), getContractAddress(), value, new DataWord(0),
-        new DataWord(0),
+    ProgramInvoke programInvoke = ProgramInvokeFactory.createProgramInvoke(
+        this, new DataWord(newAddress), getContractAddress(), value, DataWord.ZERO(),
+        DataWord.ZERO(),
         newBalance, null, deposit, false, byTestingSuite(), vmStartInUs,
         getVmShouldEndInUs(), energyLimit.longValueSafe());
     if (isConstantCall()) {
@@ -793,21 +798,27 @@ public class Program {
           "Trying to create a contract with existing contract address: 0x" + Hex
               .toHexString(newAddress)));
     } else if (isNotEmpty(programCode)) {
-      VM vm = new VM(config);
-      Program program = new Program(programCode, programInvoke, internalTx, config);
+      Program program = new Program(programCode, newAddress, programInvoke, internalTx);
       program.setRootTransactionId(this.rootTransactionId);
-      vm.play(program);
+      if (VMConfig.allowTvmCompatibleEvm()) {
+        program.setContractVersion(getContractVersion());
+      }
+      VM.play(program, OperationRegistry.getTable());
       createResult = program.getResult();
       getTrace().merge(program.getTrace());
       // always commit nonce
       this.nonce = program.nonce;
-
     }
 
     // 4. CREATE THE CONTRACT OUT OF RETURN
     byte[] code = createResult.getHReturn();
 
-    long saveCodeEnergy = (long) getLength(code) * EnergyCost.getInstance().getCREATE_DATA();
+    if (code.length != 0 && VMConfig.allowTvmLondon() && code[0] == (byte) 0xEF) {
+      createResult.setException(Program.Exception
+          .invalidCodeException());
+    }
+
+    long saveCodeEnergy = (long) getLength(code) * EnergyCost.getCreateData();
 
     long afterSpend =
         programInvoke.getEnergyLimit() - createResult.getEnergyUsed() - saveCodeEnergy;
@@ -829,7 +840,10 @@ public class Program {
           Hex.toHexString(newAddress),
           createResult.getException());
 
-      internalTx.reject();
+      if (internalTx != null) {
+        internalTx.reject();
+      }
+
       createResult.rejectInternalTransactions();
 
       stackPushZero();
@@ -859,9 +873,7 @@ public class Program {
       refundEnergy(refundEnergy, "remain energy from the internal call");
       if (logger.isDebugEnabled()) {
         logger.debug("The remaining energy is refunded, account: [{}], energy: [{}] ",
-            Hex.toHexString(
-                TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes())),
-            refundEnergy);
+            Hex.toHexString(getContextAddress()), refundEnergy);
       }
     }
   }
@@ -886,14 +898,18 @@ public class Program {
     byte[] data = memoryChunk(msg.getInDataOffs().intValue(), msg.getInDataSize().intValue());
 
     // FETCH THE SAVED STORAGE
-    byte[] codeAddress = TransactionTrace
-        .convertToTronAddress(msg.getCodeAddress().getLast20Bytes());
-    byte[] senderAddress = TransactionTrace
-        .convertToTronAddress(getContractAddress().getLast20Bytes());
-    byte[] contextAddress = msg.getType().callIsStateless() ? senderAddress : codeAddress;
+    byte[] codeAddress = msg.getCodeAddress().toTronAddress();
+    byte[] senderAddress = getContextAddress();
+
+    byte[] contextAddress;
+    if (msg.getOpCode() == Op.CALLCODE || msg.getOpCode() == Op.DELEGATECALL) {
+      contextAddress = senderAddress;
+    } else {
+      contextAddress = codeAddress;
+    }
 
     if (logger.isDebugEnabled()) {
-      logger.debug(msg.getType().name()
+      logger.debug(Op.getNameOf(msg.getOpCode())
               + " for existing contract: address: [{}], outDataOffs: [{}], outDataSize: [{}]  ",
           Hex.toHexString(contextAddress), msg.getOutDataOffs().longValue(),
           msg.getOutDataSize().longValue());
@@ -995,22 +1011,31 @@ public class Program {
     ProgramResult callResult = null;
     if (isNotEmpty(programCode)) {
       long vmStartInUs = System.nanoTime() / 1000;
-      DataWord callValue = msg.getType().callIsDelegate() ? getCallValue() : msg.getEndowment();
-      ProgramInvoke programInvoke = programInvokeFactory.createProgramInvoke(
+      DataWord callValue;
+      if (msg.getOpCode() == Op.DELEGATECALL) {
+        callValue = getCallValue();
+      } else {
+        callValue = msg.getEndowment();
+      }
+      ProgramInvoke programInvoke = ProgramInvokeFactory.createProgramInvoke(
           this, new DataWord(contextAddress),
-          msg.getType().callIsDelegate() ? getCallerAddress() : getContractAddress(),
-          !isTokenTransfer ? callValue : new DataWord(0),
-          !isTokenTransfer ? new DataWord(0) : callValue,
-          !isTokenTransfer ? new DataWord(0) : msg.getTokenId(),
-          contextBalance, data, deposit, msg.getType().callIsStatic() || isStaticCall(),
+          msg.getOpCode() == Op.DELEGATECALL ? getCallerAddress() : getContractAddress(),
+          !isTokenTransfer ? callValue : DataWord.ZERO(),
+          !isTokenTransfer ? DataWord.ZERO() : callValue,
+          !isTokenTransfer ? DataWord.ZERO() : msg.getTokenId(),
+          contextBalance, data, deposit,
+          msg.getOpCode() == Op.STATICCALL || isStaticCall(),
           byTestingSuite(), vmStartInUs, getVmShouldEndInUs(), msg.getEnergy().longValueSafe());
       if (isConstantCall()) {
         programInvoke.setConstantCall();
       }
-      VM vm = new VM(config);
-      Program program = new Program(programCode, programInvoke, internalTx, config);
+      Program program = new Program(programCode, codeAddress, programInvoke, internalTx);
       program.setRootTransactionId(this.rootTransactionId);
-      vm.play(program);
+      if (VMConfig.allowTvmCompatibleEvm()) {
+        program.setContractVersion(invoke.getDeposit()
+            .getContract(codeAddress).getContractVersion());
+      }
+      VM.play(program, OperationRegistry.getTable());
       callResult = program.getResult();
 
       getTrace().merge(program.getTrace());
@@ -1022,8 +1047,8 @@ public class Program {
         logger.debug("contract run halted by Exception: contract: [{}], exception: [{}]",
             Hex.toHexString(contextAddress),
             callResult.getException());
-
         internalTx.reject();
+
         callResult.rejectInternalTransactions();
 
         stackPushZero();
@@ -1092,6 +1117,16 @@ public class Program {
     getResult().spendEnergy(energyValue);
   }
 
+  public void spendEnergyWithPenalty(long total, long penalty, String opName) {
+    if (getEnergylimitLeftLong() < total) {
+      throw new OutOfEnergyException(
+          "Not enough energy for '%s' operation executing: curInvokeEnergyLimit[%d],"
+              + " curOpEnergy[%d], penaltyEnergy[%d], usedEnergy[%d]",
+          opName, invoke.getEnergyLimit(), total - penalty, penalty, getResult().getEnergyUsed());
+    }
+    getResult().spendEnergyWithPenalty(total, penalty);
+  }
+
   public void checkCPUTimeLimit(String opName) {
 
     if (CommonParameter.getInstance().isDebug()) {
@@ -1123,22 +1158,19 @@ public class Program {
     getResult().refundEnergy(energyValue);
   }
 
-  public void futureRefundEnergy(long energyValue) {
-    logger.debug("Future refund added: [{}]", energyValue);
-    getResult().addFutureRefund(energyValue);
-  }
-
-  public void resetFutureRefund() {
-    getResult().resetFutureRefund();
-  }
+//  public void futureRefundEnergy(long energyValue) {
+//    logger.debug("Future refund added: [{}]", energyValue);
+//    getResult().addFutureRefund(energyValue);
+//  }
+//
+//  public void resetFutureRefund() {
+//    getResult().resetFutureRefund();
+//  }
 
   public void storageSave(DataWord word1, DataWord word2) {
     DataWord keyWord = word1.clone();
     DataWord valWord = word2.clone();
-    getContractState()
-        .putStorageValue(
-            TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes()), keyWord,
-            valWord);
+    getContractState().putStorageValue(getContextAddress(), keyWord, valWord);
   }
 
   public byte[] getCode() {
@@ -1146,13 +1178,12 @@ public class Program {
   }
 
   public byte[] getCodeAt(DataWord address) {
-    byte[] code = invoke.getDeposit()
-        .getCode(TransactionTrace.convertToTronAddress(address.getLast20Bytes()));
+    byte[] code = invoke.getDeposit().getCode(address.toTronAddress());
     return nullToEmpty(code);
   }
 
   public byte[] getCodeHashAt(DataWord address) {
-    byte[] tronAddr = TransactionTrace.convertToTronAddress(address.getLast20Bytes());
+    byte[] tronAddr = address.toTronAddress();
     AccountCapsule account = getContractState().getAccount(tronAddr);
     if (account != null) {
       ContractCapsule contract = getContractState().getContract(tronAddr);
@@ -1172,6 +1203,28 @@ public class Program {
     } else {
       return EMPTY_BYTE_ARRAY;
     }
+  }
+
+  public byte[] getCodeHash() {
+    ContractCapsule contract = getContractState().getContract(codeAddress);
+    byte[] codeHash;
+    if (contract == null) {
+      codeHash = Hash.sha3(ops);
+    } else {
+      codeHash = contract.getCodeHash();
+      if (ByteUtil.isNullOrZeroArray(codeHash)) {
+        codeHash = Hash.sha3(ops);
+      }
+    }
+    return codeHash;
+  }
+
+  private Key getJumpDestAnalysisCacheKey() {
+    return Key.create(ByteUtil.merge(codeAddress, getCodeHash()));
+  }
+
+  public byte[] getContextAddress() {
+    return invoke.getContractAddress().toTronAddress();
   }
 
   public DataWord getContractAddress() {
@@ -1196,28 +1249,23 @@ public class Program {
   }
 
   public DataWord getBalance(DataWord address) {
-    long balance = getContractState()
-        .getBalance(TransactionTrace.convertToTronAddress(address.getLast20Bytes()));
+    long balance = getContractState().getBalance(address.toTronAddress());
     return new DataWord(balance);
   }
 
   public DataWord getRewardBalance(DataWord address) {
-    ContractService contractService = ContractService.getInstance();
-    long rewardBalance = contractService
-            .queryReward(TransactionTrace.convertToTronAddress(address.getLast20Bytes()), getContractState());
+    long rewardBalance = VoteRewardUtil.queryReward(address.toTronAddress(), getContractState());
     return new DataWord(rewardBalance);
   }
 
   public DataWord isContract(DataWord address) {
-    ContractCapsule contract = getContractState()
-        .getContract(TransactionTrace.convertToTronAddress(address.getLast20Bytes()));
-    return contract != null ? new DataWord(1) : new DataWord(0);
+    ContractCapsule contract = getContractState().getContract(address.toTronAddress());
+    return contract != null ? DataWord.ONE() : DataWord.ZERO();
   }
 
   public DataWord isSRCandidate(DataWord address) {
-    WitnessCapsule witnessCapsule = getContractState()
-            .getWitnessCapsule(TransactionTrace.convertToTronAddress(address.getLast20Bytes()));
-    return witnessCapsule != null ? new DataWord(1) : new DataWord(0);
+    WitnessCapsule witnessCapsule = getContractState().getWitness(address.toTronAddress());
+    return witnessCapsule != null ? DataWord.ONE() : DataWord.ZERO();
   }
 
   public DataWord getOriginAddress() {
@@ -1229,11 +1277,11 @@ public class Program {
   }
 
   public DataWord getChainId() {
-    return new DataWord(Hex.toHexString(getContractState()
-        .getBlockByNum(0).getBlockId().getBytes()));
-  }
-  public DataWord getDropPrice() {
-    return new DataWord(1);
+    byte[] chainId = getContractState().getBlockByNum(0).getBlockId().getBytes();
+    if (VMConfig.allowTvmCompatibleEvm() || VMConfig.allowOptimizedReturnValueOfChainId()) {
+      chainId = Arrays.copyOfRange(chainId, chainId.length - 4, chainId.length);
+    }
+    return new DataWord(chainId).clone();
   }
 
   public long getEnergylimitLeftLong() {
@@ -1282,19 +1330,15 @@ public class Program {
   }
 
   public DataWord storageLoad(DataWord key) {
-    DataWord ret = getContractState()
-        .getStorageValue(
-            TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes()),
-            key.clone());
+    DataWord ret = getContractState().getStorageValue(getContextAddress(), key.clone());
     return ret == null ? null : ret.clone();
   }
 
   public DataWord getTokenBalance(DataWord address, DataWord tokenId) {
     checkTokenIdInTokenBalance(tokenId);
-    long ret = getContractState()
-        .getTokenBalance(TransactionTrace.convertToTronAddress(address.getLast20Bytes()),
-            String.valueOf(tokenId.longValue()).getBytes());
-    return ret == 0 ? new DataWord(0) : new DataWord(ret);
+    long ret = getContractState().getTokenBalance(address.toTronAddress(),
+        String.valueOf(tokenId.longValue()).getBytes());
+    return new DataWord(ret);
   }
 
   public DataWord getTokenValue() {
@@ -1423,7 +1467,7 @@ public class Program {
       }
 
       if (pc != 0) {
-        globalOutput.append("[Op: ").append(OpCode.code(lastOp).name()).append("]\n");
+        globalOutput.append("[Op: ").append(Op.getNameOf(lastOp)).append("]\n");
       }
 
       globalOutput.append(" -- OPS --     ").append(opsString).append("\n");
@@ -1461,12 +1505,14 @@ public class Program {
 
   public void createContract2(DataWord value, DataWord memStart, DataWord memSize, DataWord salt) {
     byte[] senderAddress;
-    if(VMConfig.allowTvmIstanbul()) {
-      senderAddress = TransactionTrace
-          .convertToTronAddress(this.getContractAddress().getLast20Bytes());
+    if (VMConfig.allowTvmCompatibleEvm() && getCallDeep() == MAX_DEPTH) {
+      stackPushZero();
+      return;
+    }
+    if (VMConfig.allowTvmIstanbul()) {
+      senderAddress = getContextAddress();
     } else {
-      senderAddress = TransactionTrace
-          .convertToTronAddress(this.getCallerAddress().getLast20Bytes());
+      senderAddress = getCallerAddress().toTronAddress();
     }
     byte[] programCode = memoryChunk(memStart.intValue(), memSize.intValue());
 
@@ -1502,11 +1548,13 @@ public class Program {
 
     Repository deposit = getContractState().newRepositoryChild();
 
-    byte[] senderAddress = TransactionTrace
-        .convertToTronAddress(this.getContractAddress().getLast20Bytes());
-    byte[] codeAddress = TransactionTrace
-        .convertToTronAddress(msg.getCodeAddress().getLast20Bytes());
-    byte[] contextAddress = msg.getType().callIsStateless() ? senderAddress : codeAddress;
+    byte[] senderAddress = getContextAddress();
+    byte[] contextAddress;
+    if (msg.getOpCode() == Op.CALLCODE || msg.getOpCode() == Op.DELEGATECALL) {
+      contextAddress = senderAddress;
+    } else {
+      contextAddress = msg.getCodeAddress().toTronAddress();
+    }
 
     long endowment = msg.getEndowment().value().longValueExact();
     long senderBalance = 0;
@@ -1560,8 +1608,11 @@ public class Program {
       this.stackPushZero();
     } else {
       // Delegate or not. if is delegated, we will use msg sender, otherwise use contract address
-      contract.setCallerAddress(TransactionTrace.convertToTronAddress(msg.getType().callIsDelegate()
-          ? getCallerAddress().getLast20Bytes() : getContractAddress().getLast20Bytes()));
+      if (msg.getOpCode() == Op.DELEGATECALL) {
+        contract.setCallerAddress(getCallerAddress().toTronAddress());
+      } else {
+        contract.setCallerAddress(getContextAddress());
+      }
       // this is the depositImpl, not contractState as above
       contract.setRepository(deposit);
       contract.setResult(this.result);
@@ -1664,11 +1715,21 @@ public class Program {
     }
   }
 
-  public DataWord getCallEnergy(OpCode op, DataWord requestedEnergy, DataWord availableEnergy) {
+  public DataWord getCallEnergy(DataWord requestedEnergy, DataWord availableEnergy) {
+    if (VMConfig.allowTvmCompatibleEvm() && getContractVersion() == 1) {
+      DataWord availableEnergyReduce = availableEnergy.clone();
+      availableEnergyReduce.div(new DataWord(64));
+      availableEnergy.sub(availableEnergyReduce);
+    }
     return requestedEnergy.compareTo(availableEnergy) > 0 ? availableEnergy : requestedEnergy;
   }
 
   public DataWord getCreateEnergy(DataWord availableEnergy) {
+    if (VMConfig.allowTvmCompatibleEvm() && getContractVersion() == 1) {
+      DataWord availableEnergyReduce = availableEnergy.clone();
+      availableEnergyReduce.div(new DataWord(64));
+      availableEnergy.sub(availableEnergyReduce);
+    }
     return availableEnergy;
   }
 
@@ -1701,10 +1762,6 @@ public class Program {
       if (sender == null) {
         deposit.createNormalAccount(contextAddress);
       }
-      AccountAssetIssueCapsule accountAssetIssue = deposit.getAccountAssetIssue(contextAddress);
-      if (accountAssetIssue == null) {
-        deposit.createAccountAssetIssue(contextAddress);
-      }
     }
   }
 
@@ -1730,136 +1787,471 @@ public class Program {
       this.pc = pc;
     }
 
-    public OpCode getCurOpcode() {
-      return pc < code.length ? OpCode.code(code[pc]) : null;
-    }
+  }
 
-    public boolean isPush() {
-      return getCurOpcode() != null && getCurOpcode().name().startsWith("PUSH");
-    }
+  public boolean freeze(DataWord receiverAddress, DataWord frozenBalance, DataWord resourceType) {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+    byte[] receiver = receiverAddress.toTronAddress();
 
-    public byte[] getCurOpcodeArg() {
-      if (isPush()) {
-        int nPush = getCurOpcode().val() - OpCode.PUSH1.val() + 1;
-        byte[] data = Arrays.copyOfRange(code, pc + 1, pc + nPush + 1);
-        return data;
-      } else {
-        return new byte[0];
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, receiver,
+        frozenBalance.longValue(), null,
+        "freezeFor" + convertResourceToString(resourceType), nonce, null);
+
+    FreezeBalanceParam param = new FreezeBalanceParam();
+    param.setOwnerAddress(owner);
+    param.setReceiverAddress(receiver);
+    boolean needCheckFrozenTime = CommonParameter.getInstance()
+        .getCheckFrozenTime() == 1; // for test
+    param.setFrozenDuration(needCheckFrozenTime
+        ? repository.getDynamicPropertiesStore().getMinFrozenTime() : 0);
+    param.setResourceType(parseResourceCode(resourceType));
+    try {
+      FreezeBalanceProcessor processor = new FreezeBalanceProcessor();
+      param.setFrozenBalance(frozenBalance.sValue().longValueExact());
+      processor.validate(param, repository);
+      processor.execute(param, repository);
+      repository.commit();
+      return true;
+    } catch (ContractValidateException e) {
+      logger.error("TVM Freeze: validate failure. Reason: {}", e.getMessage());
+    } catch (ArithmeticException e) {
+      logger.error("TVM Freeze: frozenBalance out of long range.");
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return false;
+  }
+
+  public boolean unfreeze(DataWord receiverAddress, DataWord resourceType) {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+    byte[] receiver = receiverAddress.toTronAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, receiver, 0, null,
+        "unfreezeFor" + convertResourceToString(resourceType), nonce, null);
+
+    UnfreezeBalanceParam param = new UnfreezeBalanceParam();
+    param.setOwnerAddress(owner);
+    param.setReceiverAddress(receiver);
+    param.setResourceType(parseResourceCode(resourceType));
+    try {
+      UnfreezeBalanceProcessor processor = new UnfreezeBalanceProcessor();
+      processor.validate(param, repository);
+      long unfreezeBalance = processor.execute(param, repository);
+      repository.commit();
+      if (internalTx != null) {
+        internalTx.setValue(unfreezeBalance);
+      }
+      return true;
+    } catch (ContractValidateException e) {
+      logger.error("TVM Unfreeze: validate failure. Reason: {}", e.getMessage());
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return false;
+  }
+
+  public long freezeExpireTime(DataWord targetAddress, DataWord resourceType) {
+    byte[] owner = getContextAddress();
+    byte[] target = targetAddress.toTronAddress();
+    int resourceCode = resourceType.intValue();
+    if (FastByteComparisons.isEqual(owner, target)) {
+      AccountCapsule ownerCapsule = getContractState().getAccount(owner);
+      if (resourceCode == 0) { //  for bandwidth
+        if (ownerCapsule.getFrozenCount() != 0
+            && ownerCapsule.getFrozenList().get(0).getFrozenBalance() != 0) {
+          return ownerCapsule.getFrozenList().get(0).getExpireTime();
+        }
+      } else if (resourceCode == 1) { // for energy
+        if (ownerCapsule.getAccountResource().getFrozenBalanceForEnergy().getFrozenBalance() != 0) {
+          return ownerCapsule.getAccountResource().getFrozenBalanceForEnergy().getExpireTime();
+        }
+      }
+    } else {
+      byte[] key = DelegatedResourceCapsule.createDbKey(owner, target);
+      DelegatedResourceCapsule delegatedResourceCapsule = getContractState().getDelegatedResource(key);
+      if (delegatedResourceCapsule != null) {
+        if (resourceCode == 0) {
+          if (delegatedResourceCapsule.getFrozenBalanceForBandwidth() != 0) {
+            return delegatedResourceCapsule.getExpireTimeForBandwidth();
+          }
+        } else if (resourceCode == 1) {
+          if (delegatedResourceCapsule.getFrozenBalanceForEnergy() != 0) {
+            return delegatedResourceCapsule.getExpireTimeForEnergy();
+          }
+        }
       }
     }
-
-    public boolean next() {
-      pc += 1 + getCurOpcodeArg().length;
-      return pc < code.length;
-    }
+    return 0;
   }
 
-  public boolean stake(DataWord srAddress, DataWord stakeAmount) {
+  public boolean freezeBalanceV2(DataWord frozenBalance, DataWord resourceType) {
     Repository repository = getContractState().newRepositoryChild();
-    StakeProcessor stakeProcessor = new StakeProcessor();
-    StakeParam stakeParam = new StakeParam();
-    byte[] owner = TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes());
-    stakeParam.setOwnerAddress(owner);
-    stakeParam.setSrAddress(TransactionTrace.convertToTronAddress(srAddress.getLast20Bytes()));
-    stakeParam.setNow(getTimestamp().longValue() * 1000);
+    byte[] owner = getContextAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, owner,
+        frozenBalance.longValue(), null,
+        "freezeBalanceV2For" + convertResourceToString(resourceType), nonce, null);
+
     try {
-      stakeParam.setStakeAmount(stakeAmount.sValue().longValueExact());
-      stakeProcessor.process(stakeParam, repository);
+      FreezeBalanceV2Param param = new FreezeBalanceV2Param();
+      param.setOwnerAddress(owner);
+      param.setResourceType(parseResourceCodeV2(resourceType));
+      param.setFrozenBalance(frozenBalance.sValue().longValueExact());
+
+      FreezeBalanceV2Processor processor = new FreezeBalanceV2Processor();
+      processor.validate(param, repository);
+      processor.execute(param, repository);
       repository.commit();
       return true;
     } catch (ContractValidateException e) {
-      logger.error("validateForStake failure:{}", e.getMessage());
-    } catch (ContractExeException e) {
-      logger.error("executeForStake failure:{}", e.getMessage());
+      logger.error("TVM FreezeBalanceV2: validate failure. Reason: {}", e.getMessage());
     } catch (ArithmeticException e) {
-      logger.error("stakeAmount out of long range");
+      logger.error("TVM FreezeBalanceV2: frozenBalance out of long range.");
+    }
+    if (internalTx != null) {
+      internalTx.reject();
     }
     return false;
   }
 
-  public boolean unstake() {
+  public boolean unfreezeBalanceV2(DataWord unfreezeBalance, DataWord resourceType) {
     Repository repository = getContractState().newRepositoryChild();
-    UnstakeProcessor unstakeProcessor = new UnstakeProcessor();
-    UnstakeParam unstakeParam = new UnstakeParam();
-    byte[] owner = TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes());
-    unstakeParam.setOwnerAddress(owner);
-    unstakeParam.setNow(getTimestamp().longValue() * 1000);
+    byte[] owner = getContextAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, owner,
+        unfreezeBalance.longValue(), null,
+        "unfreezeBalanceV2For" + convertResourceToString(resourceType), nonce, null);
+
     try {
-      unstakeProcessor.validate(unstakeParam, repository);
-      unstakeProcessor.execute(unstakeParam, repository);
+      UnfreezeBalanceV2Param param = new UnfreezeBalanceV2Param();
+      param.setOwnerAddress(owner);
+      param.setUnfreezeBalance(unfreezeBalance.sValue().longValueExact());
+      param.setResourceType(parseResourceCodeV2(resourceType));
+
+      UnfreezeBalanceV2Processor processor = new UnfreezeBalanceV2Processor();
+      processor.validate(param, repository);
+      long unfreezeExpireBalance = processor.execute(param, repository);
+      repository.commit();
+      if (unfreezeExpireBalance > 0) {
+        increaseNonce();
+        addInternalTx(null, owner, owner, unfreezeExpireBalance, null,
+            "withdrawExpireUnfreezeWhileUnfreezing", nonce, null);
+      }
+      return true;
+    } catch (ContractValidateException e) {
+      logger.error("TVM UnfreezeBalanceV2: validate failure. Reason: {}", e.getMessage());
+    } catch (ArithmeticException e) {
+      logger.error("TVM UnfreezeBalanceV2: balance out of long range.");
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return false;
+  }
+
+  public long withdrawExpireUnfreeze() {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, owner, 0, null,
+        "withdrawExpireUnfreeze", nonce, null);
+
+    try {
+      WithdrawExpireUnfreezeParam param = new WithdrawExpireUnfreezeParam();
+      param.setOwnerAddress(owner);
+
+      WithdrawExpireUnfreezeProcessor processor = new WithdrawExpireUnfreezeProcessor();
+      processor.validate(param, repository);
+      long expireUnfreezeBalance = processor.execute(param, repository);
+      repository.commit();
+      if (internalTx != null) {
+        internalTx.setValue(expireUnfreezeBalance);
+      }
+      return expireUnfreezeBalance;
+    } catch (ContractValidateException e) {
+      logger.error("TVM WithdrawExpireUnfreeze: validate failure. Reason: {}", e.getMessage());
+    } catch (ContractExeException e) {
+      logger.error("TVM WithdrawExpireUnfreeze: execute failure. Reason: {}", e.getMessage());
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return 0;
+  }
+
+  public boolean cancelAllUnfreezeV2Action() {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, owner, 0, null,
+        "cancelAllUnfreezeV2", nonce, null);
+
+    try {
+      CancelAllUnfreezeV2Param param = new CancelAllUnfreezeV2Param();
+      param.setOwnerAddress(owner);
+
+      CancelAllUnfreezeV2Processor processor = new CancelAllUnfreezeV2Processor();
+      processor.validate(param, repository);
+      long withdrawExpireBalance = processor.execute(param, repository);
+      repository.commit();
+      if (withdrawExpireBalance > 0) {
+        increaseNonce();
+        addInternalTx(null, owner, owner, withdrawExpireBalance, null,
+            "withdrawExpireUnfreezeWhileCanceling", nonce, null);
+      }
+      return true;
+    } catch (ContractValidateException e) {
+      logger.error("TVM CancelAllUnfreezeV2: validate failure. Reason: {}", e.getMessage());
+    } catch (ContractExeException e) {
+      logger.error("TVM CancelAllUnfreezeV2: execute failure. Reason: {}", e.getMessage());
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return false;
+  }
+
+  public boolean delegateResource(
+      DataWord receiverAddress, DataWord delegateBalance, DataWord resourceType) {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+    byte[] receiver = receiverAddress.toTronAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, receiver,
+        delegateBalance.longValue(), null,
+        "delegateResourceOf" + convertResourceToString(resourceType), nonce, null);
+
+    try {
+      DelegateResourceParam param = new DelegateResourceParam();
+      param.setOwnerAddress(owner);
+      param.setReceiverAddress(receiver);
+      param.setDelegateBalance(delegateBalance.sValue().longValueExact());
+      param.setResourceType(parseResourceCodeV2(resourceType));
+
+      DelegateResourceProcessor processor = new DelegateResourceProcessor();
+      processor.validate(param, repository);
+      processor.execute(param, repository);
       repository.commit();
       return true;
     } catch (ContractValidateException e) {
-      logger.error("validateForUnstake failure:{}", e.getMessage());
-    } catch (ContractExeException e) {
-      logger.error("executeForUnstake failure:{}", e.getMessage());
+      logger.error("TVM DelegateResource: validate failure. Reason: {}", e.getMessage());
+    } catch (ArithmeticException e) {
+      logger.error("TVM DelegateResource: balance out of long range.");
+    }
+    if (internalTx != null) {
+      internalTx.reject();
     }
     return false;
   }
 
-  public void withdrawReward() {
+  public boolean unDelegateResource(
+      DataWord receiverAddress, DataWord unDelegateBalance, DataWord resourceType) {
     Repository repository = getContractState().newRepositoryChild();
-    WithdrawRewardProcessor withdrawRewardContractProcessor = new WithdrawRewardProcessor();
-    WithdrawRewardParam withdrawRewardParam = new WithdrawRewardParam();
-    byte[] ownerAddress = TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes());
-    withdrawRewardParam.setTargetAddress(ownerAddress);
+    byte[] owner = getContextAddress();
+    byte[] receiver = receiverAddress.toTronAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, receiver,
+        unDelegateBalance.longValue(), null,
+        "unDelegateResourceOf" + convertResourceToString(resourceType), nonce, null);
+
     try {
-      withdrawRewardContractProcessor.validate(withdrawRewardParam, repository,
-          getTimestamp().longValue() * 1000);
-      long allowance = withdrawRewardContractProcessor.execute(withdrawRewardParam, repository,
-          getTimestamp().longValue() * 1000);
-      stackPush(new DataWord(allowance));
+      UnDelegateResourceParam param = new UnDelegateResourceParam();
+      param.setOwnerAddress(owner);
+      param.setReceiverAddress(receiver);
+      param.setUnDelegateBalance(unDelegateBalance.sValue().longValueExact());
+      param.setResourceType(parseResourceCodeV2(resourceType));
+
+      UnDelegateResourceProcessor processor = new UnDelegateResourceProcessor();
+      processor.validate(param, repository);
+      processor.execute(param, repository);
       repository.commit();
+      return true;
     } catch (ContractValidateException e) {
-      logger.error("validateForWithdrawReward failure:{}", e.getMessage());
-      stackPushZero();
+      logger.error("TVM UnDelegateResource: validate failure. Reason: {}", e.getMessage());
+    } catch (ArithmeticException e) {
+      logger.error("TVM UnDelegateResource: balance out of long range.");
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return false;
+  }
+
+  private Common.ResourceCode parseResourceCode(DataWord resourceType) {
+    switch (resourceType.intValue()) {
+      case 0:
+        return Common.ResourceCode.BANDWIDTH;
+      case 1:
+        return Common.ResourceCode.ENERGY;
+      default:
+        return Common.ResourceCode.UNRECOGNIZED;
     }
   }
 
-  public void tokenIssue(DataWord name, DataWord abbr, DataWord totalSupply, DataWord precision) {
-    Repository repository = getContractState().newRepositoryChild();
-    byte[] ownerAddress = TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes());
-    TokenIssueProcessor tokenIssueProcessor = new TokenIssueProcessor();
-    TokenIssueParam tokenIssueParam = new TokenIssueParam();
-    tokenIssueParam.setName(name.getNoEndZeroesData());
-    tokenIssueParam.setAbbr(abbr.getNoEndZeroesData());
-    tokenIssueParam.setTotalSupply(totalSupply.sValue().longValueExact());
-    tokenIssueParam.setPrecision(precision.sValue().intValueExact());
-    tokenIssueParam.setOwnerAddress(ownerAddress);
+  private Common.ResourceCode parseResourceCodeV2(DataWord resourceType) {
     try {
-      tokenIssueProcessor.validate(tokenIssueParam, repository);
-      tokenIssueProcessor.execute(tokenIssueParam, repository);
-      stackPush(new DataWord(repository.getTokenIdNum()));
-      repository.commit();
-    } catch (ContractValidateException e) {
-      logger.error("validateForAssetIssue failure:{}", e.getMessage());
-      stackPushZero();
+      byte type = resourceType.sValue().byteValueExact();
+      switch (type) {
+        case 0:
+          return Common.ResourceCode.BANDWIDTH;
+        case 1:
+          return Common.ResourceCode.ENERGY;
+        case 2:
+          return Common.ResourceCode.TRON_POWER;
+        default:
+          return Common.ResourceCode.UNRECOGNIZED;
+      }
+    } catch (ArithmeticException e) {
+      logger.error("TVM ParseResourceCodeV2: invalid resource code: {}", resourceType.sValue());
+      return Common.ResourceCode.UNRECOGNIZED;
     }
   }
 
-  public void updateAsset(DataWord urlDataOffs, DataWord descriptionDataOffs) {
-    Repository repository = getContractState().newRepositoryChild();
-    byte[] ownerAddress = TransactionTrace.convertToTronAddress(getContractAddress().getLast20Bytes());
-    DataWord urlSize = memoryLoad(urlDataOffs);
-    DataWord descriptionSize = memoryLoad(descriptionDataOffs);
-    byte[] urlData = memoryChunk(urlDataOffs.intValueSafe() + DataWord.WORD_SIZE,
-            urlSize.intValueSafe());
-    byte[] descriptionData = memoryChunk(descriptionDataOffs.intValueSafe() + DataWord.WORD_SIZE,
-            descriptionSize.intValueSafe());
-    UpdateAssetParam updateAssetParam = new UpdateAssetParam();
-    updateAssetParam.setOwnerAddress(ownerAddress);
-    updateAssetParam.setNewUrl(urlData);
-    updateAssetParam.setNewDesc(descriptionData);
-    UpdateAssetProcessor updateAssetProcessor = new UpdateAssetProcessor();
-    try {
-      updateAssetProcessor.validate(updateAssetParam, repository);
-      updateAssetProcessor.execute(updateAssetParam, repository);
-      stackPushOne();
-      repository.commit();
-    } catch (ContractValidateException e) {
-      logger.error("validateForUpdateAsset failure:{}", e.getMessage());
-      stackPushZero();
+  private String convertResourceToString(DataWord resourceType) {
+    switch (resourceType.intValue()) {
+      case 0:
+        return "Bandwidth";
+      case 1:
+        return "Energy";
+      case 2:
+        return "TronPower";
+      default:
+        return "UnknownType";
     }
+  }
+
+  public boolean voteWitness(int witnessArrayOffset, int witnessArrayLength,
+      int amountArrayOffset, int amountArrayLength) {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, null, 0, null,
+        "voteWitness", nonce, null);
+
+    if (memoryLoad(witnessArrayOffset).intValueSafe() != witnessArrayLength ||
+        memoryLoad(amountArrayOffset).intValueSafe() != amountArrayLength) {
+      logger.warn("TVM VoteWitness: memory array length do not match length parameter!");
+      throw new BytecodeExecutionException(
+          "TVM VoteWitness: memory array length do not match length parameter!");
+    }
+
+    if (witnessArrayLength != amountArrayLength) {
+      logger.warn("TVM VoteWitness: witness array length {} does not match amount array length {}",
+          witnessArrayLength, amountArrayLength);
+      return false;
+    }
+
+    try {
+      VoteWitnessParam param = new VoteWitnessParam();
+      param.setVoterAddress(owner);
+
+      byte[] witnessArrayData = memoryChunk(Math.addExact(witnessArrayOffset, DataWord.WORD_SIZE),
+          Math.multiplyExact(witnessArrayLength, DataWord.WORD_SIZE));
+      byte[] amountArrayData = memoryChunk(Math.addExact(amountArrayOffset, DataWord.WORD_SIZE),
+          Math.multiplyExact(amountArrayLength, DataWord.WORD_SIZE));
+
+      for (int i = 0; i < witnessArrayLength; i++) {
+        DataWord witness = new DataWord(Arrays.copyOfRange(witnessArrayData,
+            i * DataWord.WORD_SIZE, (i + 1) * DataWord.WORD_SIZE));
+        DataWord amount = new DataWord(Arrays.copyOfRange(amountArrayData,
+            i * DataWord.WORD_SIZE, (i + 1) * DataWord.WORD_SIZE));
+        param.addVote(witness.toTronAddress(), amount.sValue().longValueExact());
+      }
+      if (internalTx != null) {
+        internalTx.setExtra(param.toJsonStr());
+      }
+
+      VoteWitnessProcessor processor = new VoteWitnessProcessor();
+      processor.validate(param, repository);
+      processor.execute(param, repository);
+      repository.commit();
+      return true;
+    } catch (ContractValidateException e) {
+      logger.error("TVM VoteWitness: validate failure. Reason: {}", e.getMessage());
+    } catch (ContractExeException e) {
+      logger.error("TVM VoteWitness: execute failure. Reason: {}", e.getMessage());
+    } catch (ArithmeticException e) {
+      logger.error("TVM VoteWitness: int or long out of range. caused by: {}", e.getMessage());
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return false;
+  }
+
+  public long withdrawReward() {
+    Repository repository = getContractState().newRepositoryChild();
+    byte[] owner = getContextAddress();
+
+    increaseNonce();
+    InternalTransaction internalTx = addInternalTx(null, owner, owner, 0, null,
+        "withdrawReward", nonce, null);
+
+    WithdrawRewardParam param = new WithdrawRewardParam();
+    param.setOwnerAddress(owner);
+    param.setNowInMs(getTimestamp().longValue() * 1000);
+    try {
+      WithdrawRewardProcessor processor = new WithdrawRewardProcessor();
+      processor.validate(param, repository);
+      long allowance = processor.execute(param, repository);
+      repository.commit();
+      if (internalTx != null) {
+        internalTx.setValue(allowance);
+      }
+      return allowance;
+    } catch (ContractValidateException e) {
+      logger.error("TVM WithdrawReward: validate failure. Reason: {}", e.getMessage());
+    } catch (ContractExeException e) {
+      logger.error("TVM WithdrawReward: execute failure. Reason: {}", e.getMessage());
+    }
+    if (internalTx != null) {
+      internalTx.reject();
+    }
+    return 0;
+  }
+
+  public long updateContextContractFactor() {
+    ContractStateCapsule contractStateCapsule =
+        contractState.getContractState(getContextAddress());
+
+    if (contractStateCapsule == null) {
+      contractStateCapsule = new ContractStateCapsule(
+          contractState.getDynamicPropertiesStore().getCurrentCycleNumber());
+      contractState.updateContractState(getContextAddress(), contractStateCapsule);
+    } else {
+      if (contractStateCapsule.catchUpToCycle(
+          contractState.getDynamicPropertiesStore().getCurrentCycleNumber(),
+          VMConfig.getDynamicEnergyThreshold(),
+          VMConfig.getDynamicEnergyIncreaseFactor(),
+          VMConfig.getDynamicEnergyMaxFactor())) {
+        contractState.updateContractState(getContextAddress(), contractStateCapsule
+        );
+      }
+    }
+    contextContractFactor = contractStateCapsule.getEnergyFactor()
+        + Constant.DYNAMIC_ENERGY_FACTOR_DECIMAL;
+    return contextContractFactor;
+  }
+
+  public void addContextContractUsage(long value) {
+    ContractStateCapsule contractStateCapsule =
+        contractState.getContractState(getContextAddress());
+
+    contractStateCapsule.addEnergyUsage(value);
+    contractState.updateContractState(getContextAddress(), contractStateCapsule);
   }
 
   /**
@@ -1942,6 +2334,14 @@ public class Program {
   }
 
   @SuppressWarnings("serial")
+  public static class InvalidCodeException extends BytecodeExecutionException {
+
+    public InvalidCodeException(String message) {
+      super(message);
+    }
+  }
+
+  @SuppressWarnings("serial")
   public static class BadJumpDestinationException extends BytecodeExecutionException {
 
     public BadJumpDestinationException(String message, Object... args) {
@@ -1990,19 +2390,6 @@ public class Program {
     private Exception() {
     }
 
-    public static OutOfEnergyException notEnoughOpEnergy(OpCode op, long opEnergy,
-        long programEnergy) {
-      return new OutOfEnergyException(
-          "Not enough energy for '%s' operation executing: opEnergy[%d], programEnergy[%d];", op,
-          opEnergy,
-          programEnergy);
-    }
-
-    public static OutOfEnergyException notEnoughOpEnergy(OpCode op, DataWord opEnergy,
-        DataWord programEnergy) {
-      return notEnoughOpEnergy(op, opEnergy.longValue(), programEnergy.longValue());
-    }
-
     public static OutOfEnergyException notEnoughSpendEnergy(String hint, long needEnergy,
         long leftEnergy) {
       return new OutOfEnergyException(
@@ -2019,9 +2406,9 @@ public class Program {
       return new OutOfTimeException("Already Time Out");
     }
 
-
-    public static OutOfMemoryException memoryOverflow(OpCode op) {
-      return new OutOfMemoryException("Out of Memory when '%s' operation executing", op.name());
+    public static OutOfMemoryException memoryOverflow(int op) {
+      return new OutOfMemoryException("Out of Memory when '%s' operation executing",
+          Op.getNameOf(op));
     }
 
     public static OutOfStorageException notEnoughStorage() {
@@ -2045,6 +2432,10 @@ public class Program {
     public static IllegalOperationException invalidOpCode(byte... opCode) {
       return new IllegalOperationException("Invalid operation code: opCode[%s];",
           Hex.toHexString(opCode, 0, 1));
+    }
+
+    public static InvalidCodeException invalidCodeException() {
+      return new InvalidCodeException("invalid code: must not begin with 0xef");
     }
 
     public static BadJumpDestinationException badJumpDestination(int pc) {

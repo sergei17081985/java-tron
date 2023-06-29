@@ -48,14 +48,6 @@ public class BN128G1 extends BN128Fp {
     return new BN128G1(p);
   }
 
-  /**
-   * Formally we have to do this check but in our domain it's not necessary, thus always return
-   * true
-   */
-  private static boolean isGroupMember(BN128<Fp> p) {
-    return true;
-  }
-
   @Override
   public BN128G1 toAffine() {
     return new BN128G1(super.toAffine());

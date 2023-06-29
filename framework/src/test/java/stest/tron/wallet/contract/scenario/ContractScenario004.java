@@ -47,11 +47,7 @@ public class ContractScenario004 {
   private JSONObject responseContent;
   private HttpResponse response;
 
-  @BeforeSuite
-  public void beforeSuite() {
-    Wallet wallet = new Wallet();
-    Wallet.setAddressPreFixByte(CommonConstant.ADD_PRE_FIX_BYTE_MAINNET);
-  }
+
 
   /**
    * constructor.

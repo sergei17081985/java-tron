@@ -1,5 +1,8 @@
 package org.tron.core.utils;
 
+import static org.tron.core.Constant.DYNAMIC_ENERGY_INCREASE_FACTOR_RANGE;
+import static org.tron.core.Constant.DYNAMIC_ENERGY_MAX_FACTOR_RANGE;
+
 import org.tron.common.utils.ForkController;
 import org.tron.core.config.Parameter.ForkBlockVersionConsts;
 import org.tron.core.config.Parameter.ForkBlockVersionEnum;
@@ -67,9 +70,16 @@ public class ProposalUtil {
       case EXCHANGE_CREATE_FEE:
         break;
       case MAX_CPU_TIME_OF_ONE_TX:
-        if (value < 10 || value > 100) {
-          throw new ContractValidateException(
-              "Bad chain parameter value, valid range is [10,100]");
+        if (dynamicPropertiesStore.getAllowHigherLimitForMaxCpuTimeOfOneTx() == 1) {
+          if (value < 10 || value > 400) {
+            throw new ContractValidateException(
+                "Bad chain parameter value, valid range is [10,400]");
+          }
+        } else {
+          if (value < 10 || value > 100) {
+            throw new ContractValidateException(
+                "Bad chain parameter value, valid range is [10,100]");
+          }
         }
         break;
       case ALLOW_UPDATE_ACCOUNT_NAME: {
@@ -340,28 +350,6 @@ public class ProposalUtil {
         }
         break;
       }
-//      case ALLOW_TVM_STAKE: {
-//          if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_1)) {
-//          throw new ContractValidateException(
-//              "Bad chain parameter id [ALLOW_TVM_STAKE]");
-//        }
-//        if (value != 1 && value != 0) {
-//          throw new ContractValidateException(
-//              "This value[ALLOW_TVM_STAKE] is only allowed to be 1 or 0");
-//        }
-//        break;
-//      }
-      //  case ALLOW_TVM_ASSET_ISSUE: {
-      //  if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_1)) {
-      //      throw new ContractValidateException(
-      //          "Bad chain parameter id [ALLOW_TVM_ASSET_ISSUE]");
-      //  }
-      //  if (value != 1 && value != 0) {
-      //    throw new ContractValidateException(
-      //        "This value[ALLOW_TVM_ASSET_ISSUE] is only allowed to be 1 or 0");
-      //  }
-      //  break;
-      //}
       case ALLOW_MARKET_TRANSACTION: {
         if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_1)) {
           throw new ContractValidateException(
@@ -405,9 +393,17 @@ public class ProposalUtil {
         if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_1_2)) {
           throw new ContractValidateException("Bad chain parameter id [MAX_FEE_LIMIT]");
         }
-        if (value < 0 || value > 10_000_000_000L) {
+        if (value < 0) {
           throw new ContractValidateException(
-              "Bad MAX_FEE_LIMIT parameter value, valid range is [0,10_000_000_000L]");
+              "Bad MAX_FEE_LIMIT parameter value, value must not be negative");
+        } else if (value > 10_000_000_000L) {
+          if (dynamicPropertiesStore.getAllowTvmLondon() == 0) {
+            throw new ContractValidateException(
+                "Bad MAX_FEE_LIMIT parameter value, valid range is [0,10_000_000_000L]");
+          }
+          if (value > LONG_VALUE) {
+            throw new ContractValidateException(LONG_VALUE_ERROR);
+          }
         }
         break;
       }
@@ -433,8 +429,258 @@ public class ProposalUtil {
         }
         break;
       }
+      case ALLOW_NEW_RESOURCE_MODEL: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_2)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_NEW_RESOURCE_MODEL]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_NEW_RESOURCE_MODEL] is only allowed to be 1");
+        }
+        break;
+      }
+      case ALLOW_TVM_FREEZE: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_2)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_TVM_FREEZE]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              PRE_VALUE_NOT_ONE_ERROR + "ALLOW_TVM_FREEZE" + VALUE_NOT_ONE_ERROR);
+        }
+        if (dynamicPropertiesStore.getAllowDelegateResource() == 0) {
+          throw new ContractValidateException(
+              "[ALLOW_DELEGATE_RESOURCE] proposal must be approved "
+                  + "before [ALLOW_TVM_FREEZE] can be proposed");
+        }
+        if (dynamicPropertiesStore.getAllowMultiSign() == 0) {
+          throw new ContractValidateException(
+              "[ALLOW_MULTI_SIGN] proposal must be approved "
+                  + "before [ALLOW_TVM_FREEZE] can be proposed");
+        }
+        if (dynamicPropertiesStore.getAllowTvmConstantinople() == 0) {
+          throw new ContractValidateException(
+              "[ALLOW_TVM_CONSTANTINOPLE] proposal must be approved "
+                  + "before [ALLOW_TVM_FREEZE] can be proposed");
+        }
+        if (dynamicPropertiesStore.getAllowTvmSolidity059() == 0) {
+          throw new ContractValidateException(
+              "[ALLOW_TVM_SOLIDITY_059] proposal must be approved "
+                  + "before [ALLOW_TVM_FREEZE] can be proposed");
+        }
+        break;
+      }
+      case ALLOW_TVM_VOTE: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_3)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_TVM_VOTE]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              PRE_VALUE_NOT_ONE_ERROR + "ALLOW_TVM_VOTE" + VALUE_NOT_ONE_ERROR);
+        }
+        if (dynamicPropertiesStore.getChangeDelegation() == 0) {
+          throw new ContractValidateException(
+              "[ALLOW_CHANGE_DELEGATION] proposal must be approved "
+                  + "before [ALLOW_TVM_VOTE] can be proposed");
+        }
+        break;
+      }
+      case FREE_NET_LIMIT: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_3)) {
+          throw new ContractValidateException("Bad chain parameter id [FREE_NET_LIMIT]");
+        }
+        if (value < 0 || value > 100_000L) {
+          throw new ContractValidateException(
+              "Bad chain parameter value, valid range is [0,100_000]");
+        }
+        break;
+      }
+      case TOTAL_NET_LIMIT: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_3)) {
+          throw new ContractValidateException("Bad chain parameter id [TOTAL_NET_LIMIT]");
+        }
+        if (value < 0 || value > 1_000_000_000_000L) {
+          throw new ContractValidateException(
+              "Bad chain parameter value, valid range is [0, 1_000_000_000_000L]");
+        }
+        break;
+      }
 
+      case ALLOW_ACCOUNT_ASSET_OPTIMIZATION: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_3)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_ACCOUNT_ASSET_OPTIMIZATION]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_ACCOUNT_ASSET_OPTIMIZATION] is only allowed to be 1");
+        }
+        break;
+      }
+      case ALLOW_TVM_LONDON: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_4)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_TVM_LONDON]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_TVM_LONDON] is only allowed to be 1");
+        }
+        break;
+      }
+      case ALLOW_TVM_COMPATIBLE_EVM: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_4)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_TVM_COMPATIBLE_EVM]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_TVM_COMPATIBLE_EVM] is only allowed to be 1");
+        }
+        break;
+      }
+      case ALLOW_HIGHER_LIMIT_FOR_MAX_CPU_TIME_OF_ONE_TX: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_5)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_HIGHER_LIMIT_FOR_MAX_CPU_TIME_OF_ONE_TX]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_HIGHER_LIMIT_FOR_MAX_CPU_TIME_OF_ONE_TX] is only allowed to be 1");
+        }
+        break;
+      }
+      case ALLOW_ASSET_OPTIMIZATION: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_5)) {
+          throw new ContractValidateException(
+                  "Bad chain parameter id [ALLOW_ASSET_OPTIMIZATION]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+                  "This value[ALLOW_ASSET_OPTIMIZATION] is only allowed to be 1");
+        }
+        break;
+      }
+      case ALLOW_NEW_REWARD: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_6)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_NEW_REWARD]");
+        }
+        if (dynamicPropertiesStore.allowNewReward()) {
+          throw new ContractValidateException(
+              "New reward has been valid.");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_NEW_REWARD] is only allowed to be 1");
+        }
+        break;
+      }
+      case MEMO_FEE: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_6)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [MEMO_FEE]");
+        }
+        if (value < 0 || value > 1_000_000_000) {
+          throw new ContractValidateException(
+              "This value[MEMO_FEE] is only allowed to be in the range 0-1000_000_000");
+        }
+        break;
+      }
+      case ALLOW_DELEGATE_OPTIMIZATION: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_6)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_DELEGATE_OPTIMIZATION]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_DELEGATE_OPTIMIZATION] is only allowed to be 1");
+        }
+        break;
+      }
+      case UNFREEZE_DELAY_DAYS: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_7)) {
+          throw new ContractValidateException(
+                  "Bad chain parameter id [UNFREEZE_DELAY_DAYS]");
+        }
+        if (value < 1 || value > 365) {
+          throw new ContractValidateException(
+                  "This value[UNFREEZE_DELAY_DAYS] is only allowed to be in the range 1-365");
+        }
+        break;
+      }
+      case ALLOW_OPTIMIZED_RETURN_VALUE_OF_CHAIN_ID: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_7)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_OPTIMIZED_RETURN_VALUE_OF_CHAIN_ID]");
+        }
+        if (value != 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_OPTIMIZED_RETURN_VALUE_OF_CHAIN_ID] is only allowed to be 1");
+        }
+        break;
+      }
 
+      case ALLOW_DYNAMIC_ENERGY: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_7)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [ALLOW_DYNAMIC_ENERGY]");
+        }
+        if (value < 0 || value > 1) {
+          throw new ContractValidateException(
+              "This value[ALLOW_DYNAMIC_ENERGY] is only allowed to be in the range 0-1"
+          );
+        }
+        if (value == 1 && dynamicPropertiesStore.getChangeDelegation() == 0) {
+          throw new ContractValidateException(
+              "[ALLOW_CHANGE_DELEGATION] proposal must be approved "
+                  + "before [ALLOW_DYNAMIC_ENERGY] can be opened");
+        }
+        break;
+      }
+      case DYNAMIC_ENERGY_THRESHOLD: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_7)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [DYNAMIC_ENERGY_THRESHOLD]");
+        }
+
+        if (value < 0 || value > LONG_VALUE) {
+          throw new ContractValidateException(LONG_VALUE_ERROR);
+        }
+        break;
+      }
+      case DYNAMIC_ENERGY_INCREASE_FACTOR: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_7)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [DYNAMIC_ENERGY_INCREASE_FACTOR]");
+        }
+
+        if (value < 0 || value > DYNAMIC_ENERGY_INCREASE_FACTOR_RANGE) {
+          throw new ContractValidateException(
+              "This value[DYNAMIC_ENERGY_INCREASE_FACTOR] "
+                  + "is only allowed to be in the range 0-"
+                  + DYNAMIC_ENERGY_INCREASE_FACTOR_RANGE
+          );
+        }
+        break;
+      }
+      case DYNAMIC_ENERGY_MAX_FACTOR: {
+        if (!forkController.pass(ForkBlockVersionEnum.VERSION_4_7)) {
+          throw new ContractValidateException(
+              "Bad chain parameter id [DYNAMIC_ENERGY_MAX_FACTOR]");
+        }
+
+        if (value < 0 || value > DYNAMIC_ENERGY_MAX_FACTOR_RANGE) {
+          throw new ContractValidateException(
+              "This value[DYNAMIC_ENERGY_MAX_FACTOR] "
+                  + "is only allowed to be in the range 0-"
+                  + DYNAMIC_ENERGY_MAX_FACTOR_RANGE
+          );
+        }
+        break;
+      }
       default:
         break;
     }
@@ -480,14 +726,34 @@ public class ProposalUtil {
     ALLOW_SHIELDED_TRC20_TRANSACTION(39), // 1, 39
     ALLOW_PBFT(40),// 1,40
     ALLOW_TVM_ISTANBUL(41),//1, {0,1}
-    //ALLOW_TVM_ASSET_ISSUE(42), // 0, 1
+    // ALLOW_TVM_ASSET_ISSUE(42), // 0, 1
     // ALLOW_TVM_STAKE(43), // 0, 1
     ALLOW_MARKET_TRANSACTION(44), // {0, 1}
     MARKET_SELL_FEE(45), // 0 [0,10_000_000_000]
     MARKET_CANCEL_FEE(46), // 0 [0,10_000_000_000]
-    MAX_FEE_LIMIT(47), // [0, 10_000_000_000]
+    MAX_FEE_LIMIT(47), // [0, 100_000_000_000] TRX
     ALLOW_TRANSACTION_FEE_POOL(48), // 0, 1
-    ALLOW_BLACKHOLE_OPTIMIZATION(49);// 0,1
+    ALLOW_BLACKHOLE_OPTIMIZATION(49),// 0,1
+    ALLOW_NEW_RESOURCE_MODEL(51),// 0,1
+    ALLOW_TVM_FREEZE(52), // 0, 1
+    ALLOW_ACCOUNT_ASSET_OPTIMIZATION(53), // 1
+    // ALLOW_NEW_REWARD_ALGORITHM(58), // 0, 1
+    ALLOW_TVM_VOTE(59), // 0, 1
+    ALLOW_TVM_COMPATIBLE_EVM(60), // 0, 1
+    FREE_NET_LIMIT(61), // 5000, [0, 100_000]
+    TOTAL_NET_LIMIT(62), // 43_200_000_000L, [0, 1000_000_000_000L]
+    ALLOW_TVM_LONDON(63), // 0, 1
+    ALLOW_HIGHER_LIMIT_FOR_MAX_CPU_TIME_OF_ONE_TX(65), // 0, 1
+    ALLOW_ASSET_OPTIMIZATION(66), // 0, 1
+    ALLOW_NEW_REWARD(67), // 0, 1
+    MEMO_FEE(68), // 0, [0, 1000_000_000]
+    ALLOW_DELEGATE_OPTIMIZATION(69),
+    UNFREEZE_DELAY_DAYS(70), // 0, [1, 365]
+    ALLOW_OPTIMIZED_RETURN_VALUE_OF_CHAIN_ID(71), // 0, 1
+    ALLOW_DYNAMIC_ENERGY(72), // 0, 1
+    DYNAMIC_ENERGY_THRESHOLD(73), // 0, [0, LONG]
+    DYNAMIC_ENERGY_INCREASE_FACTOR(74), // 0, [0, 10_000]
+    DYNAMIC_ENERGY_MAX_FACTOR(75); // 0, [0, 100_000]
 
     private long code;
 

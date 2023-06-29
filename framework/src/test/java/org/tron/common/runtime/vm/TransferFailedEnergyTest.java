@@ -5,8 +5,8 @@ import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.ToString;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.Test;
-import org.spongycastle.util.encoders.Hex;
 import org.testng.Assert;
 import org.tron.common.runtime.ProgramResult;
 import org.tron.common.runtime.TVMTestResult;
@@ -281,7 +281,7 @@ public class TransferFailedEnergyTest extends VMTestBase {
         contractName, address, ABI, code, value, fee, consumeUserResourcePercent,
         null);
     byte[] addressWithSufficientBalance = WalletUtil.generateContractAddress(trx);
-    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootDeposit, null);
+    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootRepository, null);
     Assert.assertNull(runtime.getRuntimeError());
 
     for (TestCase testCase : testCasesAfterAllowTvmConstantinop) {
@@ -292,7 +292,7 @@ public class TransferFailedEnergyTest extends VMTestBase {
         contractName, address, ABI, code, 0, fee, consumeUserResourcePercent,
         null);
     byte[] addressWithoutBalance = WalletUtil.generateContractAddress(trx);
-    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootDeposit, null);
+    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootRepository, null);
     Assert.assertNull(runtime.getRuntimeError());
 
     for (TestCase testCase : testCasesInsufficientBalance) {
@@ -353,7 +353,7 @@ public class TransferFailedEnergyTest extends VMTestBase {
         contractName, address, ABI, code, value, fee, consumeUserResourcePercent,
         null);
     byte[] addressWithSufficientBalance = WalletUtil.generateContractAddress(trx);
-    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootDeposit, null);
+    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootRepository, null);
     Assert.assertNull(runtime.getRuntimeError());
 
     for (TestCase testCase : testCasesBeforeAllowTvmConstantinop) {
@@ -364,7 +364,7 @@ public class TransferFailedEnergyTest extends VMTestBase {
         contractName, address, ABI, code, 0, fee, consumeUserResourcePercent,
         null);
     byte[] addressWithoutBalance = WalletUtil.generateContractAddress(trx);
-    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootDeposit, null);
+    runtime = TvmTestUtils.processTransactionAndReturnRuntime(trx, rootRepository, null);
     Assert.assertNull(runtime.getRuntimeError());
 
     for (TestCase testCase : testCasesInsufficientBalance) {

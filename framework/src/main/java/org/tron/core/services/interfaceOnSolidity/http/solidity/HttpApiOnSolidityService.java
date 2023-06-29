@@ -12,21 +12,30 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.tron.common.application.Service;
 import org.tron.common.parameter.CommonParameter;
 import org.tron.core.config.args.Args;
+import org.tron.core.services.filter.HttpApiAccessFilter;
 import org.tron.core.services.filter.LiteFnQueryHttpFilter;
+import org.tron.core.services.interfaceOnSolidity.http.EstimateEnergyOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetAccountByIdOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetAccountOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetAssetIssueByIdOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetAssetIssueByNameOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetAssetIssueListByNameOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetAssetIssueListOnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetAvailableUnfreezeCountOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetBlockByIdOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetBlockByLatestNumOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetBlockByLimitNextOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetBlockByNumOnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetBlockOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetBrokerageOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetBurnTrxOnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetCanDelegatedMaxSizeOnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetCanWithdrawUnfreezeAmountOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetDelegatedResourceAccountIndexOnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetDelegatedResourceAccountIndexV2OnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetDelegatedResourceOnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetDelegatedResourceV2OnSolidityServlet;
+import org.tron.core.services.interfaceOnSolidity.http.GetEnergyPricesOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetExchangeByIdOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetMarketOrderByAccountOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.GetMarketOrderByIdOnSolidityServlet;
@@ -50,6 +59,7 @@ import org.tron.core.services.interfaceOnSolidity.http.ScanNoteByOvkOnSoliditySe
 import org.tron.core.services.interfaceOnSolidity.http.ScanShieldedTRC20NotesByIvkOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.ScanShieldedTRC20NotesByOvkOnSolidityServlet;
 import org.tron.core.services.interfaceOnSolidity.http.TriggerConstantContractOnSolidityServlet;
+
 
 @Slf4j(topic = "API")
 public class HttpApiOnSolidityService implements Service {
@@ -82,8 +92,20 @@ public class HttpApiOnSolidityService implements Service {
   @Autowired
   private GetDelegatedResourceOnSolidityServlet getDelegatedResourceOnSolidityServlet;
   @Autowired
+  private GetDelegatedResourceV2OnSolidityServlet getDelegatedResourceV2OnSolidityServlet;
+  @Autowired
+  private GetCanDelegatedMaxSizeOnSolidityServlet getCanDelegatedMaxSizeOnSolidityServlet;
+  @Autowired
+  private GetAvailableUnfreezeCountOnSolidityServlet getAvailableUnfreezeCountOnSolidityServlet;
+  @Autowired
+  private GetCanWithdrawUnfreezeAmountOnSolidityServlet
+          getCanWithdrawUnfreezeAmountOnSolidityServlet;
+  @Autowired
   private GetDelegatedResourceAccountIndexOnSolidityServlet
       getDelegatedResourceAccountIndexOnSolidityServlet;
+  @Autowired
+  private GetDelegatedResourceAccountIndexV2OnSolidityServlet
+          getDelegatedResourceAccountIndexV2OnSolidityServlet;
   @Autowired
   private GetExchangeByIdOnSolidityServlet getExchangeByIdOnSolidityServlet;
   @Autowired
@@ -131,6 +153,8 @@ public class HttpApiOnSolidityService implements Service {
   @Autowired
   private TriggerConstantContractOnSolidityServlet triggerConstantContractOnSolidityServlet;
   @Autowired
+  private EstimateEnergyOnSolidityServlet estimateEnergyOnSolidityServlet;
+  @Autowired
   private GetTransactionInfoByBlockNumOnSolidityServlet
       getTransactionInfoByBlockNumOnSolidityServlet;
   @Autowired
@@ -143,9 +167,17 @@ public class HttpApiOnSolidityService implements Service {
   private GetMarketOrderListByPairOnSolidityServlet getMarketOrderListByPairOnSolidityServlet;
   @Autowired
   private GetMarketPairListOnSolidityServlet getMarketPairListOnSolidityServlet;
+  @Autowired
+  private GetEnergyPricesOnSolidityServlet getEnergyPricesOnSolidityServlet;
 
   @Autowired
   private LiteFnQueryHttpFilter liteFnQueryHttpFilter;
+
+  @Autowired
+  private HttpApiAccessFilter httpApiAccessFilter;
+
+  @Autowired
+  private GetBlockOnSolidityServlet getBlockOnSolidityServlet;
 
   @Override
   public void init() {
@@ -185,8 +217,18 @@ public class HttpApiOnSolidityService implements Service {
           "/walletsolidity/getblockbynum");
       context.addServlet(new ServletHolder(getDelegatedResourceOnSolidityServlet),
           "/walletsolidity/getdelegatedresource");
+      context.addServlet(new ServletHolder(getDelegatedResourceV2OnSolidityServlet),
+              "/walletsolidity/getdelegatedresourcev2");
+      context.addServlet(new ServletHolder(getCanDelegatedMaxSizeOnSolidityServlet),
+              "/walletsolidity/getcandelegatedmaxsize");
+      context.addServlet(new ServletHolder(getAvailableUnfreezeCountOnSolidityServlet),
+              "/walletsolidity/getavailableunfreezecount");
+      context.addServlet(new ServletHolder(getCanWithdrawUnfreezeAmountOnSolidityServlet),
+              "/walletsolidity/getcanwithdrawunfreezeamount");
       context.addServlet(new ServletHolder(getDelegatedResourceAccountIndexOnSolidityServlet),
           "/walletsolidity/getdelegatedresourceaccountindex");
+      context.addServlet(new ServletHolder(getDelegatedResourceAccountIndexV2OnSolidityServlet),
+              "/walletsolidity/getdelegatedresourceaccountindexv2");
       context.addServlet(new ServletHolder(getExchangeByIdOnSolidityServlet),
           "/walletsolidity/getexchangebyid");
       context.addServlet(new ServletHolder(listExchangesOnSolidityServlet),
@@ -217,6 +259,8 @@ public class HttpApiOnSolidityService implements Service {
           "/walletsolidity/isshieldedtrc20contractnotespent");
       context.addServlet(new ServletHolder(triggerConstantContractOnSolidityServlet),
           "/walletsolidity/triggerconstantcontract");
+      context.addServlet(new ServletHolder(estimateEnergyOnSolidityServlet),
+          "/walletsolidity/estimateenergy");
       context.addServlet(new ServletHolder(getTransactionInfoByBlockNumOnSolidityServlet),
           "/walletsolidity/gettransactioninfobyblocknum");
       context.addServlet(new ServletHolder(getMarketOrderByAccountOnSolidityServlet),
@@ -240,15 +284,29 @@ public class HttpApiOnSolidityService implements Service {
           "/walletsolidity/gettransactioncountbyblocknum");
 
       context.addServlet(new ServletHolder(getNodeInfoOnSolidityServlet), "/wallet/getnodeinfo");
+      context.addServlet(new ServletHolder(getNodeInfoOnSolidityServlet),
+          "/walletsolidity/getnodeinfo");
       context.addServlet(new ServletHolder(getBrokerageServlet), "/walletsolidity/getBrokerage");
       context.addServlet(new ServletHolder(getRewardServlet), "/walletsolidity/getReward");
       context
           .addServlet(new ServletHolder(getBurnTrxOnSolidityServlet), "/walletsolidity/getburntrx");
+      context.addServlet(new ServletHolder(getEnergyPricesOnSolidityServlet),
+          "/walletsolidity/getenergyprices");
+
+      context.addServlet(new ServletHolder(getBlockOnSolidityServlet),
+          "/walletsolidity/getblock");
 
       // filters the specified APIs
       // when node is lite fullnode and openHistoryQueryWhenLiteFN is false
       context.addFilter(new FilterHolder(liteFnQueryHttpFilter), "/*",
           EnumSet.allOf(DispatcherType.class));
+
+      // api access filter
+      context.addFilter(new FilterHolder(httpApiAccessFilter), "/walletsolidity/*",
+          EnumSet.allOf(DispatcherType.class));
+      context.getServletHandler().getFilterMappings()[1]
+          .setPathSpecs(new String[] {"/walletsolidity/*",
+              "/wallet/getnodeinfo"});
 
       int maxHttpConnectNumber = Args.getInstance().getMaxHttpConnectNumber();
       if (maxHttpConnectNumber > 0) {

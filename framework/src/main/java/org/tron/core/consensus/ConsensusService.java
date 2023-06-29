@@ -6,7 +6,7 @@ import com.google.protobuf.ByteString;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.spongycastle.util.encoders.Hex;
+import org.bouncycastle.util.encoders.Hex;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.tron.common.crypto.SignUtils;
@@ -85,7 +85,9 @@ public class ConsensusService {
   }
 
   public void stop() {
+    logger.info("consensus service closed start.");
     consensus.stop();
+    logger.info("consensus service closed successfully.");
   }
 
 }

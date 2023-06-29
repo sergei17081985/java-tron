@@ -11,6 +11,8 @@ import org.tron.core.consensus.ConsensusService;
 import org.tron.core.db.Manager;
 import org.tron.core.metrics.MetricsUtil;
 import org.tron.core.net.TronNetService;
+import org.tron.program.FullNode;
+import org.tron.program.SolidityNode;
 
 @Slf4j(topic = "app")
 @Component
@@ -55,7 +57,9 @@ public class ApplicationImpl implements Application {
    * start up the app.
    */
   public void startup() {
-    tronNetService.start();
+    if (!Args.getInstance().isSolidityNode()) {
+      tronNetService.start();
+    }
     consensusService.start();
     MetricsUtil.init();
   }
@@ -63,16 +67,21 @@ public class ApplicationImpl implements Application {
   @Override
   public void shutdown() {
     logger.info("******** start to shutdown ********");
-    tronNetService.stop();
+    if (!Args.getInstance().isSolidityNode()) {
+      tronNetService.close();
+    }
     consensusService.stop();
     synchronized (dbManager.getRevokingStore()) {
+      dbManager.getSession().reset();
       closeRevokingStore();
       closeAllStore();
     }
     dbManager.stopRePushThread();
     dbManager.stopRePushTriggerThread();
     EventPluginLoader.getInstance().stopPlugin();
+    dbManager.stopFilterProcessThread();
     logger.info("******** end to shutdown ********");
+    FullNode.shutDownSign = true;
   }
 
   @Override
